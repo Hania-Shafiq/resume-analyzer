@@ -294,3 +294,315 @@ def extract_experience_years(text: str) -> int | None:
                 pass
 
     return max(found_years) if found_years else None
+
+
+# ===========================================================================
+# Job Description Analysis
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Section-heading regexes
+# "Required", "Requirements", "Must have", "You must", "Qualifications"
+# → everything in this block is a hard requirement.
+# ---------------------------------------------------------------------------
+_REQUIRED_HEADING = re.compile(
+    r"^\s*(?:"
+    r"requirements?|required(?: skills?| qualifications?)?|"
+    r"must[- ]have|must[- ]haves?|"
+    r"you (must|will|should)|"
+    r"minimum qualifications?|"
+    r"essential skills?|"
+    r"what you(?:'ll)? need|"
+    r"what we(?:'re)? looking for"
+    r")\s*[:\-]?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# "Preferred", "Nice to have", "Bonus", "Plus", "Good to have", "Desirable"
+# → everything in this block is optional / preferred.
+_PREFERRED_HEADING = re.compile(
+    r"^\s*(?:"
+    r"preferred(?: skills?| qualifications?)?|"
+    r"nice[- ]to[- ]have[s]?|"
+    r"bonus(?: points?| skills?)?|"
+    r"plus(?:es)?|"
+    r"good[- ]to[- ]have|"
+    r"desirable(?: skills?)?|"
+    r"advantageous|"
+    r"optional(?: skills?)?"
+    r")\s*[:\-]?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# Any heading that starts a new top-level section (used to detect section end)
+_ANY_SECTION_HEADING = re.compile(
+    r"^\s*(?:"
+    r"about(?: the)?(?: role| job| company| us|position)?|"
+    r"responsibilities|duties|role overview|"
+    r"requirements?|required|must[- ]have|minimum qualifications?|"
+    r"preferred|nice[- ]to[- ]have|bonus|"
+    r"benefits?|compensation|salary|"
+    r"how to apply|application process|"
+    r"what you(?:'ll)? (do|bring|need)|"
+    r"what we(?: offer| expect)?|"
+    r"who you are|about you"
+    r")\s*[:\-]?\s*$",
+    re.IGNORECASE,
+)
+
+# Inline signals inside bullet/sentence text (used when no headings present)
+_REQUIRED_INLINE = re.compile(
+    r"\b(required|must\s+have|must\s+know|mandatory|essential|"
+    r"you\s+must|minimum|at\s+least|expect(?:ed)?)\b",
+    re.IGNORECASE,
+)
+_PREFERRED_INLINE = re.compile(
+    r"\b(preferred?|nice[- ]to[- ]have|bonus|plus|"
+    r"desirable|advantage(?:ous)?|ideally|optional|"
+    r"good[- ]to[- ]have|familiarity\s+with)\b",
+    re.IGNORECASE,
+)
+
+# ---------------------------------------------------------------------------
+# Job title / category inference (rough heuristic from JD title line)
+# ---------------------------------------------------------------------------
+_TITLE_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\b(machine learning|ml engineer|ai engineer|data scientist|nlp engineer)\b", re.I), "machine_learning"),
+    (re.compile(r"\b(data engineer|data analyst|analytics engineer|bi developer)\b", re.I), "data_engineering"),
+    (re.compile(r"\b(backend|back-end|back end|api developer|server[- ]side)\b", re.I), "backend"),
+    (re.compile(r"\b(frontend|front-end|front end|ui developer|react developer|vue developer)\b", re.I), "frontend"),
+    (re.compile(r"\b(full[- ]?stack)\b", re.I), "fullstack"),
+    (re.compile(r"\b(devops|site reliability|sre|platform engineer|cloud engineer|infrastructure)\b", re.I), "devops"),
+    (re.compile(r"\b(mobile|android|ios|flutter|react native)\b", re.I), "mobile"),
+    (re.compile(r"\b(software engineer|software developer|sde|swe)\b", re.I), "software_engineering"),
+    (re.compile(r"\b(product manager|pm\b|program manager)\b", re.I), "product_management"),
+    (re.compile(r"\b(qa|quality assurance|test engineer|sdet|automation engineer)\b", re.I), "qa_testing"),
+]
+
+
+def _split_jd_into_sections(text: str) -> dict[str, list[str]]:
+    """Split JD text into labelled sections: 'required', 'preferred', 'other'.
+
+    Strategy
+    --------
+    1. Walk through lines.
+    2. When a heading regex matches, switch the current active section.
+    3. Non-heading lines are accumulated into the active section's bucket.
+    4. If *no* section headings are found at all, fall back to inline-signal
+       classification: scan each bullet/sentence for required/preferred keywords.
+
+    Returns
+    -------
+    dict with keys "required", "preferred", "other"; values are lists of text lines.
+    """
+    sections: dict[str, list[str]] = {"required": [], "preferred": [], "other": []}
+    current: str = "other"
+    found_any_heading = False
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        if _REQUIRED_HEADING.match(stripped):
+            current = "required"
+            found_any_heading = True
+            continue  # heading line itself is not content
+        if _PREFERRED_HEADING.match(stripped):
+            current = "preferred"
+            found_any_heading = True
+            continue
+        # Any other top-level section resets to "other"
+        if _ANY_SECTION_HEADING.match(stripped) and current in ("required", "preferred"):
+            current = "other"
+            continue
+
+        sections[current].append(stripped)
+
+    # ── Fallback: no headings detected — classify by inline signals ──────────
+    if not found_any_heading:
+        reclassified: dict[str, list[str]] = {"required": [], "preferred": [], "other": []}
+        for line in sections["other"]:
+            if _PREFERRED_INLINE.search(line):
+                reclassified["preferred"].append(line)
+            elif _REQUIRED_INLINE.search(line):
+                reclassified["required"].append(line)
+            else:
+                # No signal → treat as required (conservative default)
+                reclassified["required"].append(line)
+        return reclassified
+
+    return sections
+
+
+def _infer_job_title_and_category(text: str) -> tuple[str | None, str | None]:
+    """Guess job title and functional category from the first non-empty lines."""
+    # Use the first 3 non-empty lines as the "title zone"
+    title_zone = "\n".join(
+        line.strip() for line in text.splitlines() if line.strip()
+    )[:300]
+
+    detected_category: str | None = None
+    for pattern, category in _TITLE_PATTERNS:
+        if pattern.search(title_zone):
+            detected_category = category
+            break
+
+    # Extract the first non-empty line as a raw title guess
+    first_line = next(
+        (line.strip() for line in text.splitlines() if line.strip()), None
+    )
+    return first_line, detected_category
+
+
+class JDAnalysis:
+    """Structured result from analyze_job_description().
+
+    Attributes
+    ----------
+    required_skills : list[str]
+        Canonical skills that are hard requirements (must-have).
+    preferred_skills : list[str]
+        Canonical skills that are nice-to-have / preferred.
+    min_experience_years : int | None
+        Minimum years of experience, or None if not mentioned.
+    education_requirement : list[EducationEntry]
+        Detected education requirements (degree level + field).
+    job_title : str | None
+        First non-empty line of the JD used as a raw title hint.
+    job_category : str | None
+        Inferred functional category (e.g. 'backend', 'machine_learning').
+    """
+
+    __slots__ = (
+        "required_skills",
+        "preferred_skills",
+        "min_experience_years",
+        "education_requirement",
+        "job_title",
+        "job_category",
+    )
+
+    def __init__(
+        self,
+        required_skills: list[str],
+        preferred_skills: list[str],
+        min_experience_years: int | None,
+        education_requirement: list[EducationEntry],
+        job_title: str | None,
+        job_category: str | None,
+    ) -> None:
+        self.required_skills = required_skills
+        self.preferred_skills = preferred_skills
+        self.min_experience_years = min_experience_years
+        self.education_requirement = education_requirement
+        self.job_title = job_title
+        self.job_category = job_category
+
+    def to_dict(self) -> dict:
+        """Return a plain dict representation (JSON-serialisable)."""
+        return {
+            "required_skills": self.required_skills,
+            "preferred_skills": self.preferred_skills,
+            "min_experience_years": self.min_experience_years,
+            "education_requirement": [
+                {"degree": e.degree, "field": e.field, "raw": e.raw}
+                for e in self.education_requirement
+            ],
+            "job_title": self.job_title,
+            "job_category": self.job_category,
+        }
+
+    def __repr__(self) -> str:
+        return (
+            f"JDAnalysis(title={self.job_title!r}, category={self.job_category!r}, "
+            f"required={len(self.required_skills)}, preferred={len(self.preferred_skills)}, "
+            f"min_exp={self.min_experience_years}yr)"
+        )
+
+
+def analyze_job_description(jd_text: str) -> JDAnalysis:
+    """Parse a job description and extract structured hiring requirements.
+
+    This is the primary entry point for JD analysis. It orchestrates:
+
+    1. **Section splitting** — identifies "Required" vs "Preferred" blocks
+       using heading-level regexes. Falls back to inline keyword signals
+       ("must have", "nice to have") if no section headings are found.
+
+    2. **Skill extraction** — runs :func:`extract_skills` independently on
+       the required and preferred text blocks, so each skill is tagged with
+       the correct importance tier.
+
+    3. **Experience parsing** — runs :func:`extract_experience_years` on the
+       full JD text (experience is rarely confined to one section).
+
+    4. **Education parsing** — runs :func:`extract_education` on the full
+       JD text (same rationale as experience).
+
+    5. **Title / category inference** — lightweight regex scan of the first
+       few lines to guess the job family.
+
+    Parameters
+    ----------
+    jd_text : str
+        Raw or lightly cleaned job description text.
+
+    Returns
+    -------
+    JDAnalysis
+        A structured object with the following attributes:
+
+        - ``required_skills``      — canonical skills that are hard requirements.
+        - ``preferred_skills``     — canonical skills that are nice-to-have.
+        - ``min_experience_years`` — integer or None.
+        - ``education_requirement``— list of :class:`EducationEntry`.
+        - ``job_title``            — first line of JD (raw title hint).
+        - ``job_category``         — inferred functional category string or None.
+
+        Call ``.to_dict()`` for a JSON-serialisable dict.
+
+    Raises
+    ------
+    TypeError  : if *jd_text* is not a string.
+    ValueError : if *jd_text* is empty or blank.
+    """
+    if not isinstance(jd_text, str):
+        raise TypeError(f"Expected str, got {type(jd_text).__name__}.")
+    if not jd_text.strip():
+        raise ValueError("jd_text must not be empty.")
+
+    # ── Step 1: Split into required / preferred / other sections ────────────
+    sections = _split_jd_into_sections(jd_text)
+
+    required_text  = "\n".join(sections["required"])
+    preferred_text = "\n".join(sections["preferred"])
+    # "other" feeds into required as a catch-all (conservative)
+    other_text     = "\n".join(sections["other"])
+
+    # ── Step 2: Extract skills per section ──────────────────────────────────
+    # We merge "other" into required (safe default: unknown section = required)
+    combined_required = (required_text + "\n" + other_text).strip()
+
+    required_skills  = extract_skills(combined_required) if combined_required else []
+    preferred_skills = extract_skills(preferred_text)    if preferred_text    else []
+
+    # A skill found in *both* sections is truly required — remove from preferred
+    required_set = set(required_skills)
+    preferred_skills = [s for s in preferred_skills if s not in required_set]
+
+    # ── Step 3: Experience + Education from full JD ──────────────────────────
+    min_exp  = extract_experience_years(jd_text)
+    edu_reqs = extract_education(jd_text)
+
+    # ── Step 4: Title + category inference ──────────────────────────────────
+    job_title, job_category = _infer_job_title_and_category(jd_text)
+
+    return JDAnalysis(
+        required_skills=required_skills,
+        preferred_skills=preferred_skills,
+        min_experience_years=min_exp,
+        education_requirement=edu_reqs,
+        job_title=job_title,
+        job_category=job_category,
+    )
