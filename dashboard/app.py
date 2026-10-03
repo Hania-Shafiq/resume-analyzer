@@ -261,21 +261,30 @@ with st.sidebar:
     <div class="brand-logo-mark" aria-hidden="true"></div>
     <span class="sidebar-brand-name">Resume Analyzer</span>
     </div>
-    <div class="sidebar-brand-sub">CANDIDATE INTELLIGENCE</div>
+    <div class="sidebar-brand-sub"></div>
     </div>
     """)
 
     H('<div class="sidebar-nav-label">WORKSPACE</div>')
 
-    curr_idx = NAV_PAGES.index(st.session_state["nav_page"]) if st.session_state["nav_page"] in NAV_PAGES else 0
-
-    page = st.radio(
-        "Navigate",
-        NAV_PAGES,
-        index=curr_idx,
-        label_visibility="collapsed",
-    )
-    st.session_state["nav_page"] = page
+    NAV_ICONS = {
+        "Overview": ":material/dashboard:",
+        "Upload Resume": ":material/upload_file:",
+        "Job Description": ":material/description:",
+        "Match & Analysis": ":material/analytics:",
+    }
+    for _p in NAV_PAGES:
+        _active = st.session_state["nav_page"] == _p
+        if st.button(
+            _p,
+            key=f"nav_{_p}",
+            icon=NAV_ICONS[_p],
+            use_container_width=True,
+            type="primary" if _active else "secondary",
+        ):
+            st.session_state["nav_page"] = _p
+            st.rerun()
+    page = st.session_state["nav_page"]
 
     status_cls = "online" if alive else "offline"
     status_txt = "Service Active" if alive else "Service Offline"
