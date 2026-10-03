@@ -1,18 +1,25 @@
 """Streamlit dashboard interface for the Resume Analyzer application."""
 
-import io
-import sys
-import json
 from pathlib import Path
-
+import re
 import requests
 import streamlit as st
+
+
+# ---------------------------------------------------------------------------
+# HTML Rendering Helper — strips indentation & blank lines to prevent code blocks
+# ---------------------------------------------------------------------------
+def H(s: str) -> None:
+    s = re.sub(r'^[ \t]+', '', s, flags=re.M)
+    s = re.sub(r'\n\s*\n', '\n', s)
+    st.markdown(s, unsafe_allow_html=True)
+
 
 # ---------------------------------------------------------------------------
 # Page configuration — must be the FIRST Streamlit call
 # ---------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Resume Analyzer",
+    page_title="Resume Analyzer | ATS Resume Checker and Job Match Score",
     page_icon="📄",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -24,94 +31,41 @@ st.set_page_config(
 API_BASE = "http://127.0.0.1:8000"
 
 # ---------------------------------------------------------------------------
-# CSS — dark-mode polish
+# Inject CSS stylesheet
 # ---------------------------------------------------------------------------
-st.markdown("""
-<style>
-    /* Main background */
-    .stApp { background: #0f1117; }
-
-    /* Sidebar */
-    section[data-testid="stSidebar"] { background: #1a1d27; }
-
-    /* Card-style containers */
-    .metric-card {
-        background: linear-gradient(135deg, #1e2235, #252a3d);
-        border: 1px solid #2d3250;
-        border-radius: 12px;
-        padding: 1.2rem 1.5rem;
-        margin: 0.4rem 0;
-    }
-    .metric-card h4 { color: #a0aec0; font-size: 0.8rem; margin: 0; text-transform: uppercase; letter-spacing: 0.1em; }
-    .metric-card p  { color: #e2e8f0; font-size: 1.6rem; font-weight: 700; margin: 0.3rem 0 0; }
-
-    /* Skill tags */
-    .skill-tag {
-        display: inline-block;
-        background: #2d3250;
-        color: #7c83f7;
-        border: 1px solid #4a4f7a;
-        border-radius: 6px;
-        padding: 3px 10px;
-        margin: 3px;
-        font-size: 0.82rem;
-        font-weight: 600;
-    }
-    .skill-tag.required  { background: #1e3a2f; color: #4ade80; border-color: #2d6a4f; }
-    .skill-tag.preferred { background: #2a2200; color: #facc15; border-color: #6b5700; }
-    .skill-tag.missing   { background: #3a1e1e; color: #f87171; border-color: #7a2d2d; }
-    .skill-tag.matched   { background: #1e3a2f; color: #4ade80; border-color: #2d6a4f; }
-
-    /* Score bar */
-    .score-bar-bg {
-        background: #1e2235; border-radius: 8px; height: 20px; overflow: hidden; margin: 0.5rem 0;
-    }
-    .score-bar-fill {
-        height: 100%; border-radius: 8px;
-        background: linear-gradient(90deg, #4f46e5, #7c83f7);
-        transition: width 0.6s ease;
-    }
-
-    /* Section headers */
-    .section-header {
-        color: #7c83f7;
-        font-size: 1.05rem;
-        font-weight: 700;
-        border-left: 3px solid #4f46e5;
-        padding-left: 0.7rem;
-        margin: 1.2rem 0 0.6rem;
-    }
-    h1, h2, h3 { color: #e2e8f0 !important; }
-    p, li, label { color: #a0aec0; }
-</style>
-""", unsafe_allow_html=True)
+css_file = Path(__file__).parent / "style.css"
+if css_file.exists():
+    with open(css_file, "r", encoding="utf-8") as f:
+        H(f"<style>{f.read()}</style>")
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Isometric SVG Icons (Monochrome Emerald, 44x44px)
 # ---------------------------------------------------------------------------
-def _tags(skills: list[str], css_class: str = "") -> str:
-    cls = f"skill-tag {css_class}".strip()
-    return "".join(f'<span class="{cls}">{s}</span>' for s in skills)
+ICON_RESUME = """<svg class="card-icon-isometric" width="44" height="44" viewBox="0 0 48 48" fill="none" aria-hidden="true"><polygon points="12,24 26,16 40,24 26,32" fill="#047857" stroke="rgba(255,255,255,0.15)" stroke-width="1"/><polygon points="12,24 26,32 26,35 12,27" fill="#065F46" /><polygon points="40,24 26,32 26,35 40,27" fill="#044E3A" /><polygon points="12,18 26,10 40,18 26,26" fill="#34D399" stroke="rgba(255,255,255,0.3)" stroke-width="1"/><polygon points="12,18 26,26 26,29 12,21" fill="#10B981" /><polygon points="40,18 26,26 26,29 40,21" fill="#059669" /><line x1="20" y1="16" x2="32" y2="23" stroke="#065F46" stroke-width="1.5" stroke-linecap="round"/><line x1="17" y1="19" x2="27" y2="25" stroke="#065F46" stroke-width="1.5" stroke-linecap="round"/></svg>"""
+
+ICON_JD = """<svg class="card-icon-isometric" width="44" height="44" viewBox="0 0 48 48" fill="none" aria-hidden="true"><polygon points="8,22 24,13 40,22 24,31" fill="#34D399" stroke="rgba(255,255,255,0.3)" stroke-width="1"/><polygon points="8,22 24,31 24,35 8,26" fill="#10B981"/><polygon points="40,22 24,31 24,35 40,26" fill="#059669"/><ellipse cx="26" cy="18" rx="8" ry="5" fill="#059669" fill-opacity="0.3" stroke="#A7F3D0" stroke-width="1.8"/><line x1="32" y1="21" x2="39" y2="26" stroke="#047857" stroke-width="3" stroke-linecap="round"/><line x1="32" y1="21" x2="39" y2="26" stroke="#10B981" stroke-width="1.5" stroke-linecap="round"/></svg>"""
+
+ICON_MATCH = """<svg class="card-icon-isometric" width="44" height="44" viewBox="0 0 48 48" fill="none" aria-hidden="true"><polygon points="24,8 40,17 24,26 8,17" fill="#34D399" stroke="rgba(255,255,255,0.3)" stroke-width="1"/><polygon points="8,17 24,26 24,40 8,31" fill="#10B981" stroke="rgba(255,255,255,0.15)" stroke-width="1"/><polygon points="40,17 24,26 24,40 40,31" fill="#059669" stroke="rgba(255,255,255,0.15)" stroke-width="1"/><ellipse cx="24" cy="17" rx="9" ry="5" fill="none" stroke="#065F46" stroke-width="2"/><path d="M 16 17 A 9 5 0 0 1 31 15" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round"/><circle cx="24" cy="17" r="1.5" fill="#FFFFFF"/></svg>"""
+
+ICON_KEYWORD = """<svg class="card-icon-isometric" width="44" height="44" viewBox="0 0 48 48" fill="none" aria-hidden="true"><polygon points="24,9 41,18 28,34 11,25" fill="#34D399" stroke="rgba(255,255,255,0.3)" stroke-width="1"/><polygon points="11,25 28,34 28,39 11,30" fill="#10B981"/><polygon points="41,18 28,34 28,39 41,23" fill="#059669"/><ellipse cx="21" cy="16" rx="3" ry="1.8" fill="#065F46" stroke="rgba(255,255,255,0.4)" stroke-width="1"/><line x1="25" y1="21" x2="35" y2="27" stroke="#047857" stroke-width="1.8" stroke-linecap="round"/></svg>"""
+
+ICON_GAP = """<svg class="card-icon-isometric" width="44" height="44" viewBox="0 0 48 48" fill="none" aria-hidden="true"><polygon points="10,24 24,16 38,24 24,32" fill="#10B981" stroke="rgba(255,255,255,0.2)" stroke-width="1"/><polygon points="10,24 24,32 24,40 10,32" fill="#059669"/><polygon points="38,24 24,32 24,40 38,32" fill="#047857"/><polygon points="18,12 28,6 38,12 28,18" fill="#34D399" stroke="rgba(255,255,255,0.3)" stroke-width="1"/><polygon points="18,12 28,18 28,24 18,18" fill="#10B981"/><polygon points="38,12 28,18 28,24 38,18" fill="#059669"/></svg>"""
+
+ICON_EXP = """<svg class="card-icon-isometric" width="44" height="44" viewBox="0 0 48 48" fill="none" aria-hidden="true"><polygon points="10,27 18,22 26,27 18,32" fill="#34D399" stroke="rgba(255,255,255,0.2)" stroke-width="0.8"/><polygon points="10,27 18,32 18,39 10,34" fill="#10B981"/><polygon points="26,27 18,32 18,39 26,34" fill="#059669"/><polygon points="18,20 26,15 34,20 26,25" fill="#34D399" stroke="rgba(255,255,255,0.25)" stroke-width="0.8"/><polygon points="18,20 26,25 26,34 18,29" fill="#10B981"/><polygon points="34,20 26,25 26,34 34,29" fill="#059669"/><polygon points="26,13 34,8 42,13 34,18" fill="#6EE7B7" stroke="rgba(255,255,255,0.3)" stroke-width="0.8"/><polygon points="26,13 34,18 34,30 26,25" fill="#10B981"/><polygon points="42,13 34,18 34,30 42,25" fill="#059669"/></svg>"""
+
+ICON_RECS = """<svg class="card-icon-isometric" width="44" height="44" viewBox="0 0 48 48" fill="none" aria-hidden="true"><polygon points="10,25 25,17 40,25 25,33" fill="#059669" stroke="rgba(255,255,255,0.2)" stroke-width="1"/><polygon points="10,25 25,33 25,37 10,29" fill="#047857"/><polygon points="40,25 25,33 25,37 40,29" fill="#064E3B"/><polygon points="13,18 26,10 39,18 26,26" fill="#34D399" stroke="rgba(255,255,255,0.3)" stroke-width="1"/><polygon points="13,18 26,26 26,30 13,22" fill="#10B981"/><polygon points="39,18 26,26 26,30 39,22" fill="#059669"/><polygon points="23,24 26,26 29,24 29,29 26,27 23,29" fill="#A7F3D0"/></svg>"""
 
 
-def _score_bar(score: float, label: str = "") -> None:
-    pct = int(score * 100)
-    color = "#4ade80" if pct >= 70 else "#facc15" if pct >= 40 else "#f87171"
-    st.markdown(
-        f"""
-        <div style="margin-bottom:0.8rem;">
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-            <span style="color:#a0aec0;font-size:0.85rem;">{label}</span>
-            <span style="color:{color};font-weight:700;">{pct}%</span>
-          </div>
-          <div class="score-bar-bg">
-            <div class="score-bar-fill" style="width:{pct}%;background:linear-gradient(90deg,{color}88,{color});"></div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+# ---------------------------------------------------------------------------
+# Helpers — Modern SaaS Components
+# ---------------------------------------------------------------------------
+def _tags(skills: list[str], kind: str = "matched") -> str:
+    """Render small 12px pill chips."""
+    if not skills:
+        return '<span style="color: var(--text-tertiary); font-size: 0.85rem; font-style: italic;">None identified</span>'
+    tags_html = "".join(f'<span class="skill-pill {kind}">{s}</span>' for s in skills)
+    return f'<div class="skill-pills-wrap">{tags_html}</div>'
 
 
 def _api_ok() -> bool:
@@ -123,80 +77,406 @@ def _api_ok() -> bool:
         return False
 
 
+def _render_top_bar(alive: bool) -> None:
+    """Render slim top bar with logo-mark and API indicator."""
+    dot_cls = "online" if alive else "offline"
+    dot_txt = "API Connected" if alive else "API Disconnected"
+    H(f"""<header class="top-bar">
+<div class="brand-wrapper">
+<div class="brand-logo-mark" aria-hidden="true"></div>
+<span class="brand-name">Resume Analyzer</span>
+<span class="brand-badge">v0.1.0</span>
+</div>
+<div class="status-indicator">
+<span class="status-dot-saas {dot_cls}" aria-hidden="true"></span>
+<span style="color: var(--text-secondary); font-size: 12px; font-weight: 500;">{dot_txt}</span>
+</div>
+</header>""")
+
+
+def _render_score_ring(score: float, matched_req: int, total_req: int, matched_pref: int, total_pref: int) -> None:
+    """Render clean SVG circular progress ring with tabular numeral and verdict badge."""
+    pct = max(0, min(100, int(round(score * 100))))
+    circumference = 339.292
+    offset = circumference * (1.0 - (pct / 100.0))
+
+    if pct >= 70:
+        badge_cls = "strong"
+        verdict = "Strong match"
+    elif pct >= 40:
+        badge_cls = "partial"
+        verdict = "Partial match"
+    else:
+        badge_cls = "weak"
+        verdict = "Weak match"
+
+    H(f"""
+    <article class="bento-card score-card-hero fade-up-1" style="height: 100%; display: flex; flex-direction: column; justify-content: space-between;">
+    <div>
+    <span class="section-label">OVERALL ALIGNMENT</span>
+    <h2 class="card-title">Role Match Score</h2>
+    </div>
+    <div class="score-ring-svg">
+    <svg viewBox="0 0 120 120" width="150" height="150" style="transform: rotate(-90deg);" aria-label="Match score progress ring: {pct}%">
+    <circle cx="60" cy="60" r="54" fill="none" stroke="rgba(255, 255, 255, 0.08)" stroke-width="6" />
+    <circle cx="60" cy="60" r="54" fill="none" stroke="#10B981" stroke-width="6"
+    stroke-dasharray="339.29" stroke-dashoffset="{offset:.2f}" stroke-linecap="round"
+    class="ring-stroke-animate" style="transition: stroke-dashoffset 0.8s ease;" />
+    </svg>
+    <div class="score-ring-center">
+    <div class="score-tabular-num">{pct}%</div>
+    </div>
+    </div>
+    <div>
+    <div class="score-verdict-badge {badge_cls}">{verdict}</div>
+    <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.85rem; line-height: 1.5;">
+    {matched_req} of {total_req} required criteria verified<br/>
+    {matched_pref} of {total_pref} preferred criteria met
+    </p>
+    </div>
+    </article>
+    """)
+
+
+def _render_product_preview_stage() -> None:
+    """Render 3D product preview stage with pure CSS layered panels and subtle mouse parallax."""
+    H("""<div class="stage-wrapper" aria-label="Illustration of a resume, a job description, and a match score">
+<div class="stage-glow" aria-hidden="true"></div>
+<div class="stage-grid-floor" aria-hidden="true"></div>
+<div class="stage-iso-group">
+<div class="stage-3d-scene" id="previewStageScene">
+<div class="iso-panel panel-resume">
+<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+<div class="mock-avatar"></div>
+<div style="flex: 1;">
+<div class="mock-bar" style="width: 65%;"></div>
+<div class="mock-bar" style="width: 40%;"></div>
+</div>
+</div>
+<div class="mock-bar heading"></div>
+<div class="mock-bar" style="width: 90%;"></div>
+<div class="mock-bar" style="width: 82%;"></div>
+<div class="mock-bar" style="width: 70%;"></div>
+<div class="mock-bar heading"></div>
+<div class="mock-bar" style="width: 85%;"></div>
+<div class="mock-bar" style="width: 60%;"></div>
+<div class="mock-bar" style="width: 75%;"></div>
+</div>
+<div class="stage-connector conn-1" aria-hidden="true">
+<div class="stage-connector-dot" style="left: 0;"></div>
+<div class="stage-connector-dot" style="right: 0;"></div>
+</div>
+<div class="iso-panel panel-jd">
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+<span class="mock-chip" style="background: rgba(255,255,255,0.06); color: var(--text-secondary);">ROLE SPEC</span>
+<span style="font-size: 10px; color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace;">REQ</span>
+</div>
+<div class="mock-bar" style="width: 75%; height: 7px; background: rgba(255,255,255,0.25); margin-bottom: 12px;"></div>
+<div class="mock-bullet-row">
+<div class="mock-bullet-dot"></div>
+<div class="mock-bar" style="width: 85%; margin: 0;"></div>
+</div>
+<div class="mock-bullet-row">
+<div class="mock-bullet-dot"></div>
+<div class="mock-bar" style="width: 75%; margin: 0;"></div>
+</div>
+<div class="mock-bullet-row">
+<div class="mock-bullet-dot"></div>
+<div class="mock-bar" style="width: 65%; margin: 0;"></div>
+</div>
+<div style="margin-top: 14px; display: flex; gap: 6px; flex-wrap: wrap;">
+<span class="mock-chip matched">Python</span>
+<span class="mock-chip matched">FastAPI</span>
+<span class="mock-chip" style="background: rgba(255,255,255,0.06); color: var(--text-secondary);">Docker</span>
+</div>
+</div>
+<div class="stage-connector conn-2" aria-hidden="true">
+<div class="stage-connector-dot" style="left: 0;"></div>
+<div class="stage-connector-dot" style="right: 0;"></div>
+</div>
+<div class="iso-panel panel-match">
+<div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">
+<svg viewBox="0 0 54 54" width="46" height="46" style="transform: rotate(-90deg); flex-shrink: 0;" aria-hidden="true">
+<circle cx="27" cy="27" r="22" fill="none" stroke="rgba(255, 255, 255, 0.08)" stroke-width="4.5" />
+<circle cx="27" cy="27" r="22" fill="none" stroke="#10B981" stroke-width="4.5" stroke-dasharray="138.2" stroke-dashoffset="19.3" stroke-linecap="round" />
+<text x="27" y="32" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="12" font-weight="700" fill="#F2F4F8" transform="rotate(90 27 27)">86%</text>
+</svg>
+<div>
+<div style="font-size: 10px; font-weight: 700; color: #10B981; letter-spacing: 0.06em; text-transform: uppercase;">STRONG MATCH</div>
+<div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Role Fit Verified</div>
+</div>
+</div>
+<div style="height: 1px; background: var(--border-subtle); margin-bottom: 12px;"></div>
+<div style="display: flex; flex-direction: column; gap: 6px;">
+<span class="mock-chip matched" style="width: fit-content;">&bull; Python (Verified)</span>
+<span class="mock-chip matched" style="width: fit-content;">&bull; FastAPI (Verified)</span>
+<span class="mock-chip missing" style="width: fit-content;">&bull; Docker (Missing)</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<script>
+(function() {
+var stage = document.querySelector('.stage-wrapper');
+var scene = document.getElementById('previewStageScene');
+if (!stage || !scene) return;
+if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+stage.addEventListener('mousemove', function(e) {
+var rect = stage.getBoundingClientRect();
+var x = (e.clientX - rect.left) / rect.width - 0.5;
+var y = (e.clientY - rect.top) / rect.height - 0.5;
+scene.style.transform = 'rotateX(' + (55 - y * 12) + 'deg) rotateZ(' + (-35 + x * 12) + 'deg)';
+});
+stage.addEventListener('mouseleave', function() {
+scene.style.transform = 'rotateX(55deg) rotateZ(-35deg)';
+});
+})();
+</script>""")
+
+
+def _render_footer() -> None:
+    """Render minimal footer."""
+    H("""
+    <footer class="site-footer">
+    <div>Resume Analyzer v0.1.0</div>
+    <div>Built for recruiters and job seekers</div>
+    </footer>
+    """)
+
+
 # ---------------------------------------------------------------------------
-# Sidebar — navigation
+# Sidebar — Clean Linear-style Navigation
 # ---------------------------------------------------------------------------
+alive = _api_ok()
+
+NAV_PAGES = ["Overview", "Upload Resume", "Job Description", "Match & Analysis"]
+if "nav_page" not in st.session_state:
+    st.session_state["nav_page"] = "Overview"
+
 with st.sidebar:
-    st.markdown("## 📄 Resume Analyzer")
-    st.markdown("---")
+    H("""
+    <div class="sidebar-brand">
+    <div class="sidebar-brand-row">
+    <div class="brand-logo-mark" aria-hidden="true"></div>
+    <span class="sidebar-brand-name">Resume Analyzer</span>
+    </div>
+    <div class="sidebar-brand-sub">CANDIDATE INTELLIGENCE</div>
+    </div>
+    """)
+
+    H('<div class="sidebar-nav-label">WORKSPACE</div>')
+
+    curr_idx = NAV_PAGES.index(st.session_state["nav_page"]) if st.session_state["nav_page"] in NAV_PAGES else 0
+
     page = st.radio(
         "Navigate",
-        ["🏠 Home", "📤 Resume Upload", "📋 JD Analyzer", "🎯 Match & Gap"],
+        NAV_PAGES,
+        index=curr_idx,
         label_visibility="collapsed",
     )
-    st.markdown("---")
+    st.session_state["nav_page"] = page
 
-    # API status indicator
-    alive = _api_ok()
-    dot   = "🟢" if alive else "🔴"
-    msg   = "API Online" if alive else "API Offline — start uvicorn"
-    st.markdown(f"{dot} **{msg}**")
-    st.caption(f"`{API_BASE}`")
+    status_cls = "online" if alive else "offline"
+    status_txt = "Service Active" if alive else "Service Offline"
+    has_res = bool(st.session_state.get("resume_data") or st.session_state.get("resume_text"))
+    has_jd = bool(st.session_state.get("jd_data") or st.session_state.get("jd_text"))
+    res_cls = "ready" if has_res else "pending"
+    jd_cls = "ready" if has_jd else "pending"
+    res_txt = "Ready" if has_res else "Pending"
+    jd_txt = "Ready" if has_jd else "Pending"
 
-    st.markdown("---")
-    st.caption("Resume Analyzer v0.1.0 · Phase 1")
+    H(f"""
+    <div class="sidebar-cards">
+    <div class="sidebar-card">
+    <div class="sidebar-card-status-row">
+    <span class="status-dot-saas {status_cls}" aria-hidden="true"></span>
+    <span class="sidebar-card-status-txt">{status_txt}</span>
+    </div>
+    <div class="sidebar-card-url">{API_BASE}</div>
+    </div>
+    <div class="sidebar-card">
+    <div class="sidebar-card-label">WORKBENCH STATE</div>
+    <div class="sidebar-card-row">
+    <span class="sidebar-card-key">Resume</span>
+    <span class="sidebar-card-val {res_cls}">{res_txt}</span>
+    </div>
+    <div class="sidebar-card-row">
+    <span class="sidebar-card-key">Job Description</span>
+    <span class="sidebar-card-val {jd_cls}">{jd_txt}</span>
+    </div>
+    </div>
+    </div>
+    """)
+
+    H("""
+    <div class="sidebar-footer">Build 0.1.0 · Phase 1</div>
+    """)
+
+
+# ===========================================================================
+# Top Bar
+# ===========================================================================
+_render_top_bar(alive)
 
 
 # ===========================================================================
 # Pages
 # ===========================================================================
 
-# ── Home ────────────────────────────────────────────────────────────────────
-if page == "🏠 Home":
-    st.markdown("# 🚀 AI-Powered Resume Analyzer")
-    st.markdown(
-        "Upload a resume, paste a job description, and instantly see skill matches, "
-        "gaps, and learning recommendations."
-    )
-    st.markdown("---")
+# ── Overview ─────────────────────────────────────────────────────────────────
+if page == "Overview":
+    # Split hero: text + CTA + trust (left) | 3D stage (right)
+    hero_left, hero_right = st.columns([1, 0.9], gap="large")
 
-    c1, c2, c3, c4 = st.columns(4)
-    for col, icon, title, desc in [
-        (c1, "📤", "Upload Resume",   "PDF or DOCX"),
-        (c2, "🧠", "Extract Skills",  "250+ skill taxonomy"),
-        (c3, "🎯", "Match to JD",     "Skill overlap scoring"),
-        (c4, "📈", "Gap Analysis",    "Learn what's missing"),
-    ]:
-        with col:
-            st.markdown(
-                f'<div class="metric-card"><h4>{icon} {title}</h4><p style="font-size:0.9rem;color:#a0aec0;">{desc}</p></div>',
-                unsafe_allow_html=True,
-            )
+    with hero_left:
+        H("""<section class="hero-section hero-copy">
+<span class="hero-label">AI RESUME SCREENING PLATFORM</span>
+<h1 class="hero-title">Resume Analyzer<span class="hero-tagline">Match Resumes to Job Descriptions Instantly</span></h1>
+<p class="hero-subtext">Upload a PDF or DOCX resume, paste a job description, and get an ATS-style match score, skill gap analysis, and clear improvement recommendations in seconds.</p>
+</section>""")
+        if st.button("Analyze a Resume", type="primary", key="hero_cta_btn"):
+            st.session_state["nav_page"] = "Upload Resume"
+            st.rerun()
+        H("""<div class="trust-strip">
+<span class="trust-item">PDF and DOCX supported</span>
+<span class="trust-divider" aria-hidden="true"></span>
+<span class="trust-item">Skill and experience extraction</span>
+<span class="trust-divider" aria-hidden="true"></span>
+<span class="trust-item">Instant match scoring</span>
+</div>""")
 
-    st.markdown("---")
-    st.markdown("### How to use")
-    st.markdown(
-        "1. Go to **📤 Resume Upload** and upload your resume.\n"
-        "2. Go to **📋 JD Analyzer** and paste a job description.\n"
-        "3. Go to **🎯 Match & Gap** to see your score and skill gaps."
-    )
+    with hero_right:
+        _render_product_preview_stage()
+
+    # 3 Step Flow with equal heights, connecting line & monochrome isometric icons (ONE contiguous call)
+    H(f"""<div class="step-grid-wrapper">
+<div class="step-flow-line" aria-hidden="true"></div>
+<div class="steps-grid">
+<article class="step-card fade-up-1">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.85rem;">
+<div class="step-dot-badge">
+<span class="step-dot" aria-hidden="true"></span>
+<span class="section-label" style="margin: 0;">STEP 01</span>
+</div>
+{ICON_RESUME}
+</div>
+<h3 class="card-title">Resume Parsing</h3>
+<p style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.55; margin: 0; flex: 1;">
+Extract text from PDF and DOCX resumes and turn it into structured skills, tools, and work experience.
+</p>
+</article>
+<article class="step-card fade-up-2">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.85rem;">
+<div class="step-dot-badge">
+<span class="step-dot" aria-hidden="true"></span>
+<span class="section-label" style="margin: 0;">STEP 02</span>
+</div>
+{ICON_JD}
+</div>
+<h3 class="card-title">Job Description Analysis</h3>
+<p style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.55; margin: 0; flex: 1;">
+Identify required skills, preferred qualifications, and minimum experience from any job posting.
+</p>
+</article>
+<article class="step-card fade-up-3">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.85rem;">
+<div class="step-dot-badge">
+<span class="step-dot" aria-hidden="true"></span>
+<span class="section-label" style="margin: 0;">STEP 03</span>
+</div>
+{ICON_MATCH}
+</div>
+<h3 class="card-title">Match Score and Skill Gap Analysis</h3>
+<p style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.55; margin: 0; flex: 1;">
+Get a resume-to-job match score, see missing keywords, and receive targeted learning suggestions.
+</p>
+</article>
+</div>
+</div>""")
+
+    # Section H2 & 2x2 Feature Grid (ONE contiguous call)
+    H(f"""<h2 class="section-heading-h2">What you get with Resume Analyzer</h2>
+<div class="features-grid-2x2">
+<article class="feature-tile fade-up-1">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
+<span class="section-label">ATS KEYWORD MATCH</span>
+{ICON_KEYWORD}
+</div>
+<p style="font-size: 0.9rem; color: var(--text-primary); line-height: 1.55; margin: 0.35rem 0 0 0;">
+See which job description keywords your resume already covers.
+</p>
+</article>
+<article class="feature-tile fade-up-2">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
+<span class="section-label">SKILL GAP DETECTION</span>
+{ICON_GAP}
+</div>
+<p style="font-size: 0.9rem; color: var(--text-primary); line-height: 1.55; margin: 0.35rem 0 0 0;">
+Find the missing skills that lower your match score.
+</p>
+</article>
+<article class="feature-tile fade-up-3">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
+<span class="section-label">EXPERIENCE THRESHOLD CHECK</span>
+{ICON_EXP}
+</div>
+<p style="font-size: 0.9rem; color: var(--text-primary); line-height: 1.55; margin: 0.35rem 0 0 0;">
+Compare your years of experience against the role requirements.
+</p>
+</article>
+<article class="feature-tile fade-up-4">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
+<span class="section-label">LEARNING RECOMMENDATIONS</span>
+{ICON_RECS}
+</div>
+<p style="font-size: 0.9rem; color: var(--text-primary); line-height: 1.55; margin: 0.35rem 0 0 0;">
+Get specific skills and topics to close each gap.
+</p>
+</article>
+</div>""")
+
+    # FAQ Section
+    H('<h2 class="section-heading-h2">Frequently asked questions</h2>')
+
+    with st.expander("What is an ATS resume checker?"):
+        st.write("It compares your resume against a job description the way applicant tracking systems filter candidates, using keywords, skills, and experience.")
+
+    with st.expander("Which resume formats are supported?"):
+        st.write("PDF and DOCX files.")
+
+    with st.expander("How is the match score calculated?"):
+        st.write("The score compares skills, keywords, and experience found in your resume with those required in the job description.")
+
+    with st.expander("How do I improve my resume match score?"):
+        st.write("Add the missing skills and keywords from the gap analysis where they honestly apply, and quantify your experience.")
 
     if not alive:
         st.warning(
-            "⚠️ The FastAPI backend is not running. Start it with:\n"
-            "```powershell\n.venv\\Scripts\\Activate.ps1\nuvicorn app.main:app --reload\n```"
+            "Backend server is offline at http://127.0.0.1:8000. Start it with `uvicorn app.main:app --reload` to enable analysis."
         )
 
+    _render_footer()
 
-# ── Resume Upload ────────────────────────────────────────────────────────────
-elif page == "📤 Resume Upload":
-    st.markdown("# 📤 Resume Upload & Parsing")
-    st.markdown("Upload your resume (PDF or DOCX) to extract text and skills automatically.")
 
-    uploaded = st.file_uploader("Choose your resume", type=["pdf", "docx"])
+# ── Upload Resume ───────────────────────────────────────────────────────────
+elif page == "Upload Resume":
+    H("""
+    <section class="hero-section">
+    <span class="hero-label">RESUME INTAKE</span>
+    <h1 class="hero-headline">Upload Your Resume (PDF or DOCX)</h1>
+    <p class="hero-subtext">Extract text from PDF and DOCX resumes and turn it into structured skills, tools, and work experience.</p>
+    </section>
+    """)
+
+    uploaded = st.file_uploader(
+        "Drop your resume here (PDF or DOCX)",
+        type=["pdf", "docx"],
+        label_visibility="collapsed",
+    )
 
     if uploaded:
-        with st.spinner("Parsing resume…"):
+        with st.spinner("Processing document..."):
             try:
                 resp = requests.post(
                     f"{API_BASE}/resume/upload",
@@ -207,46 +487,85 @@ elif page == "📤 Resume Upload":
                     data = resp.json()
                     st.session_state["resume_data"] = data
                     st.session_state["resume_text"] = data.get("text_preview", "")
-                    st.success(f"✅ Parsed **{uploaded.name}** — {data['char_count']:,} characters")
+                    
+                    st.success(f"Parsed {uploaded.name} — {data['char_count']:,} characters processed.")
 
-                    # Metrics row
+                    # Summary cards
                     m1, m2, m3 = st.columns(3)
                     with m1:
-                        st.markdown(f'<div class="metric-card"><h4>🛠 Skills Found</h4><p>{len(data["skills"])}</p></div>', unsafe_allow_html=True)
+                        H(f"""
+                        <article class="bento-card fade-up-1">
+                        <span class="section-label">EXTRACTED SKILLS</span>
+                        <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.85rem; font-weight: 600; color: var(--accent-emerald);">
+                        {len(data["skills"])}
+                        </div>
+                        <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 4px;">Verified in profile</div>
+                        </article>
+                        """)
                     with m2:
                         exp = data["experience_years"]
-                        st.markdown(f'<div class="metric-card"><h4>📅 Experience</h4><p>{exp if exp else "—"} yrs</p></div>', unsafe_allow_html=True)
+                        exp_str = f"{exp} yrs" if exp else "Not indicated"
+                        H(f"""
+                        <article class="bento-card fade-up-2">
+                        <span class="section-label">EXPERIENCE</span>
+                        <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.85rem; font-weight: 600; color: var(--text-primary);">
+                        {exp_str}
+                        </div>
+                        <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 4px;">Cumulative duration</div>
+                        </article>
+                        """)
                     with m3:
                         edu = data["education"]
-                        deg = edu[0]["degree"] if edu else "—"
-                        st.markdown(f'<div class="metric-card"><h4>🎓 Highest Degree</h4><p style="font-size:1rem;">{deg}</p></div>', unsafe_allow_html=True)
+                        deg = edu[0]["degree"] if edu else "None listed"
+                        H(f"""
+                        <article class="bento-card fade-up-3">
+                        <span class="section-label">HIGHEST DEGREE</span>
+                        <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary); line-height: 1.4; margin-top: 4px;">
+                        {deg}
+                        </div>
+                        <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 4px;">Academic baseline</div>
+                        </article>
+                        """)
 
-                    # Skills
-                    st.markdown('<div class="section-header">Extracted Skills</div>', unsafe_allow_html=True)
-                    st.markdown(_tags(data["skills"]), unsafe_allow_html=True)
+                    # Skills Card (ONE contiguous call)
+                    H(f"""
+                    <article class="bento-card fade-up-2" style="margin-top: 0.5rem;">
+                    <span class="section-label">CANDIDATE TAXONOMY</span>
+                    <h2 class="card-title">Extracted Skills</h2>
+                    {_tags(data["skills"], "neutral")}
+                    </article>
+                    """)
 
-                    # Text preview
-                    with st.expander("📝 Extracted text preview"):
+                    with st.expander("Document preview text"):
                         st.text(data["text_preview"])
+
                 else:
-                    st.error(f"API error {resp.status_code}: {resp.json().get('detail', resp.text)}")
+                    err_msg = resp.json().get("detail", resp.text) if resp.headers.get("content-type") == "application/json" else resp.text
+                    st.error(f"Upload failed ({resp.status_code}): {err_msg}")
             except requests.ConnectionError:
-                st.error("❌ Cannot reach the backend. Make sure `uvicorn app.main:app --reload` is running.")
+                st.error("Cannot connect to backend service. Please confirm uvicorn is running on http://127.0.0.1:8000.")
+
+    _render_footer()
 
 
-# ── JD Analyzer ──────────────────────────────────────────────────────────────
-elif page == "📋 JD Analyzer":
-    st.markdown("# 📋 Job Description Analyzer")
-    st.markdown("Paste a job description to extract required skills, preferred skills, experience, and education requirements.")
+# ── Job Description ─────────────────────────────────────────────────────────
+elif page == "Job Description":
+    H("""
+    <section class="hero-section">
+    <span class="hero-label">ROLE BENCHMARK</span>
+    <h1 class="hero-headline">Add the Job Description</h1>
+    <p class="hero-subtext">Identify required skills, preferred qualifications, and minimum experience from any job posting.</p>
+    </section>
+    """)
 
-    job_title = st.text_input("Job Title (optional)", placeholder="e.g. Senior Python Developer")
-    jd_text   = st.text_area("Job Description", height=280, placeholder="Paste the full job description here…")
+    job_title = st.text_input("Job Title (optional)", placeholder="e.g. Senior Backend Engineer")
+    jd_text   = st.text_area("Job Description", height=240, placeholder="Paste the complete role description and requirement specifications here...")
 
-    if st.button("🔍 Analyze JD", type="primary"):
+    if st.button("Analyze Job Description", type="primary"):
         if not jd_text.strip():
-            st.warning("Please paste a job description.")
+            st.warning("Please provide job description text before analyzing.")
         else:
-            with st.spinner("Analyzing…"):
+            with st.spinner("Analyzing criteria..."):
                 try:
                     resp = requests.post(
                         f"{API_BASE}/job/analyze",
@@ -255,64 +574,121 @@ elif page == "📋 JD Analyzer":
                     )
                     if resp.status_code == 200:
                         d = resp.json()
-                        st.session_state["jd_data"]    = d
-                        st.session_state["jd_text"]    = (job_title + "\n" + jd_text).strip()
+                        st.session_state["jd_data"] = d
+                        st.session_state["jd_text"] = (job_title + "\n" + jd_text).strip()
 
-                        # Summary row
+                        # Metrics row
                         c1, c2, c3, c4 = st.columns(4)
-                        with c1: st.markdown(f'<div class="metric-card"><h4>🔴 Required Skills</h4><p>{len(d["required_skills"])}</p></div>', unsafe_allow_html=True)
-                        with c2: st.markdown(f'<div class="metric-card"><h4>🟡 Preferred Skills</h4><p>{len(d["preferred_skills"])}</p></div>', unsafe_allow_html=True)
-                        with c3: st.markdown(f'<div class="metric-card"><h4>📅 Min Experience</h4><p>{d["min_experience_years"] or "—"} yrs</p></div>', unsafe_allow_html=True)
+                        with c1:
+                            H(f"""
+                            <article class="bento-card fade-up-1">
+                            <span class="section-label">REQUIRED SKILLS</span>
+                            <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.85rem; font-weight: 600; color: var(--semantic-rose);">
+                            {len(d["required_skills"])}
+                            </div>
+                            </article>
+                            """)
+                        with c2:
+                            H(f"""
+                            <article class="bento-card fade-up-2">
+                            <span class="section-label">PREFERRED SKILLS</span>
+                            <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.85rem; font-weight: 600; color: var(--semantic-amber);">
+                            {len(d["preferred_skills"])}
+                            </div>
+                            </article>
+                            """)
+                        with c3:
+                            min_exp = d["min_experience_years"]
+                            min_exp_str = f"{min_exp} yrs" if min_exp else "None"
+                            H(f"""
+                            <article class="bento-card fade-up-3">
+                            <span class="section-label">MIN EXPERIENCE</span>
+                            <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.85rem; font-weight: 600; color: var(--text-primary);">
+                            {min_exp_str}
+                            </div>
+                            </article>
+                            """)
                         with c4:
                             edu = d["education_requirement"]
-                            deg = edu[0]["degree"] if edu else "—"
-                            st.markdown(f'<div class="metric-card"><h4>🎓 Education</h4><p style="font-size:0.95rem;">{deg}</p></div>', unsafe_allow_html=True)
+                            deg = edu[0]["degree"] if edu else "None"
+                            H(f"""
+                            <article class="bento-card fade-up-4">
+                            <span class="section-label">EDUCATION</span>
+                            <div style="font-size: 1.15rem; font-weight: 600; color: var(--text-primary); margin-top: 6px;">
+                            {deg}
+                            </div>
+                            </article>
+                            """)
 
-                        # Skills
                         col_r, col_p = st.columns(2)
                         with col_r:
-                            st.markdown('<div class="section-header">Required Skills</div>', unsafe_allow_html=True)
-                            st.markdown(_tags(d["required_skills"], "required"), unsafe_allow_html=True)
+                            H(f"""
+                            <article class="bento-card fade-up-2" style="min-height: 180px;">
+                            <span class="section-label">MANDATORY</span>
+                            <h2 class="card-title">Required Qualifications</h2>
+                            {_tags(d["required_skills"], "missing")}
+                            </article>
+                            """)
+
                         with col_p:
-                            st.markdown('<div class="section-header">Preferred Skills</div>', unsafe_allow_html=True)
-                            st.markdown(_tags(d["preferred_skills"], "preferred"), unsafe_allow_html=True)
+                            H(f"""
+                            <article class="bento-card fade-up-3" style="min-height: 180px;">
+                            <span class="section-label">SECONDARY</span>
+                            <h2 class="card-title">Preferred Criteria</h2>
+                            {_tags(d["preferred_skills"], "preferred")}
+                            </article>
+                            """)
 
-                        st.markdown(f"**Detected category:** `{d['job_category'] or 'unknown'}`")
+                        cat = d.get('job_category') or 'Unclassified'
+                        H(f"""
+                        <div style="font-size: 12px; color: var(--text-secondary); margin-top: 0.5rem;">
+                        Category classification: <strong style="color: var(--text-primary);">{cat}</strong>
+                        </div>
+                        """)
                     else:
-                        st.error(f"API error {resp.status_code}: {resp.json().get('detail', resp.text)}")
+                        err_msg = resp.json().get("detail", resp.text) if resp.headers.get("content-type") == "application/json" else resp.text
+                        st.error(f"Analysis error {resp.status_code}: {err_msg}")
                 except requests.ConnectionError:
-                    st.error("❌ Cannot reach the backend.")
+                    st.error("Cannot connect to backend service. Please confirm uvicorn is running on http://127.0.0.1:8000.")
+
+    _render_footer()
 
 
-# ── Match & Gap ──────────────────────────────────────────────────────────────
-elif page == "🎯 Match & Gap":
-    st.markdown("# 🎯 Resume ↔ Job Match & Skill Gap")
+# ── Match & Analysis ────────────────────────────────────────────────────────
+elif page == "Match & Analysis":
+    H("""
+    <section class="hero-section">
+    <span class="hero-label">BENCHMARK EVALUATION</span>
+    <h1 class="hero-headline">Resume Match Score and Gap Analysis</h1>
+    <p class="hero-subtext">Get a resume-to-job match score, see missing keywords, and receive targeted learning suggestions.</p>
+    </section>
+    """)
 
     col_l, col_r = st.columns(2)
     with col_l:
-        st.markdown("#### Your Resume Text")
+        H('<span class="section-label">CANDIDATE SOURCE</span>')
         resume_text = st.text_area(
             "Resume text",
             value=st.session_state.get("resume_text", ""),
-            height=220,
+            height=180,
             label_visibility="collapsed",
-            placeholder="Paste resume text or upload via the Resume Upload page first…",
+            placeholder="Paste candidate resume text or upload via Upload page...",
         )
     with col_r:
-        st.markdown("#### Job Description")
+        H('<span class="section-label">ROLE BENCHMARK</span>')
         jd_text = st.text_area(
             "JD text",
             value=st.session_state.get("jd_text", ""),
-            height=220,
+            height=180,
             label_visibility="collapsed",
-            placeholder="Paste job description or analyze via the JD Analyzer page first…",
+            placeholder="Paste job description or analyze via Job Description page...",
         )
 
-    if st.button("🎯 Run Match & Gap Analysis", type="primary"):
+    if st.button("Run Match & Gap Analysis", type="primary"):
         if not resume_text.strip() or not jd_text.strip():
-            st.warning("Both resume text and job description are required.")
+            st.warning("Both candidate resume text and job specification are required.")
         else:
-            with st.spinner("Matching…"):
+            with st.spinner("Calculating semantic alignment and identifying competency gaps..."):
                 try:
                     match_resp = requests.post(
                         f"{API_BASE}/match",
@@ -332,34 +708,123 @@ elif page == "🎯 Match & Gap":
 
                     if match_resp.status_code == 200:
                         m = match_resp.json()
-                        g = gap_resp.json()   if gap_resp.status_code   == 200 else {}
-                        r = rec_resp.json()   if rec_resp.status_code   == 200 else {}
+                        g = gap_resp.json() if gap_resp.status_code == 200 else {}
+                        r = rec_resp.json() if rec_resp.status_code == 200 else {}
 
-                        # Score
                         score = m["skill_overlap_score"]
-                        st.markdown("---")
-                        st.markdown("### Overall Match Score (Skill Overlap)")
-                        _score_bar(score, f"Skill Score — {int(score*100)}%")
+                        req_matched = m.get("required_matched", [])
+                        total_req = m.get("total_required", len(req_matched))
+                        pref_matched = m.get("preferred_matched", [])
+                        total_pref = m.get("total_preferred", len(pref_matched))
+                        req_missing = g.get("required_gap", m.get("required_missing", []))
+                        pref_missing = g.get("preferred_gap", m.get("preferred_missing", []))
+                        recs = r.get("recommended_to_learn", [])
+                        total_gaps = g.get("gap_count", len(req_missing) + len(pref_missing))
 
-                        # Breakdown
-                        c1, c2, c3 = st.columns(3)
-                        with c1: st.markdown(f'<div class="metric-card"><h4>✅ Required Matched</h4><p>{len(m["required_matched"])} / {m["total_required"]}</p></div>', unsafe_allow_html=True)
-                        with c2: st.markdown(f'<div class="metric-card"><h4>⭐ Preferred Matched</h4><p>{len(m["preferred_matched"])} / {m["total_preferred"]}</p></div>', unsafe_allow_html=True)
-                        with c3: st.markdown(f'<div class="metric-card"><h4>❌ Total Gaps</h4><p>{g.get("gap_count", "—")}</p></div>', unsafe_allow_html=True)
+                        H('<div style="height: 1.5rem;"></div>')
 
-                        # Skill columns
-                        st.markdown("---")
-                        col_a, col_b, col_c = st.columns(3)
-                        with col_a:
-                            st.markdown('<div class="section-header">✅ Matched Required</div>', unsafe_allow_html=True)
-                            st.markdown(_tags(m["required_matched"], "matched") or "<span style='color:#555'>None</span>", unsafe_allow_html=True)
-                        with col_b:
-                            st.markdown('<div class="section-header">❌ Missing Required</div>', unsafe_allow_html=True)
-                            st.markdown(_tags(g.get("required_gap", []), "missing") or "<span style='color:#555'>None</span>", unsafe_allow_html=True)
-                        with col_c:
-                            st.markdown('<div class="section-header">📚 Recommended to Learn</div>', unsafe_allow_html=True)
-                            st.markdown(_tags(r.get("recommended_to_learn", []), "missing") or "<span style='color:#555'>None</span>", unsafe_allow_html=True)
+                        # Clean Bento Grid:
+                        # Row 1: Score Card (left, tall) + Summary & Skills (right)
+                        bento_left, bento_right = st.columns([4.2, 7.8], gap="large")
+
+                        with bento_left:
+                            _render_score_ring(score, len(req_matched), total_req, len(pref_matched), total_pref)
+
+                        with bento_right:
+                            H(f"""
+                            <article class="bento-card fade-up-2" style="height: 100%;">
+                            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                            <div>
+                            <span class="section-label">OVERVIEW SUMMARY</span>
+                            <h2 class="card-title">Evaluation Breakdown</h2>
+                            </div>
+                            <div style="font-size: 12px; color: var(--text-secondary);">
+                            <span style="font-weight: 600; color: var(--accent-emerald);">{len(req_matched)}</span> / {total_req} criteria
+                            </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 1rem 0;">
+                            <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem;">
+                            <span class="section-label">MANDATORY MET</span>
+                            <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.35rem; font-weight: 600; color: var(--accent-emerald);">
+                            {len(req_matched)}
+                            </div>
+                            </div>
+                            <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem;">
+                            <span class="section-label">PREFERRED MET</span>
+                            <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.35rem; font-weight: 600; color: var(--semantic-amber);">
+                            {len(pref_matched)}
+                            </div>
+                            </div>
+                            <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem;">
+                            <span class="section-label">TOTAL GAPS</span>
+                            <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.35rem; font-weight: 600; color: var(--semantic-rose);">
+                            {total_gaps}
+                            </div>
+                            </div>
+                            </div>
+                            <span class="section-label" style="margin-top: 0.75rem;">VERIFIED CANDIDATE SKILLS</span>
+                            {_tags(req_matched, "matched")}
+                            </article>
+                            """)
+
+                        # Row 2: Strengths / Gaps / Suggestions as three equal cards below
+                        H('<div style="height: 0.75rem;"></div>')
+                        c_str, c_gap, c_sug = st.columns(3, gap="medium")
+
+                        with c_str:
+                            H(f"""
+                            <article class="bento-card fade-up-3" style="min-height: 240px;">
+                            <span class="section-label" style="color: var(--accent-emerald);">VERIFIED STRENGTHS</span>
+                            <h3 class="card-title">Required Met ({len(req_matched)})</h3>
+                            <p style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+                            Mandatory competencies documented in candidate background:
+                            </p>
+                            {_tags(req_matched, "matched")}
+                            </article>
+                            """)
+
+                        with c_gap:
+                            H(f"""
+                            <article class="bento-card fade-up-4" style="min-height: 240px;">
+                            <span class="section-label" style="color: var(--semantic-rose);">CRITICAL GAPS</span>
+                            <h3 class="card-title">Missing Required ({len(req_missing)})</h3>
+                            <p style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+                            Essential prerequisites absent from candidate experience:
+                            </p>
+                            {_tags(req_missing, "missing")}
+                            </article>
+                            """)
+
+                        with c_sug:
+                            H(f"""
+                            <article class="bento-card fade-up-5" style="min-height: 240px;">
+                            <span class="section-label" style="color: var(--semantic-amber);">RECOMMENDED SKILLS</span>
+                            <h3 class="card-title">Learning Priorities ({len(recs)})</h3>
+                            <p style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+                            Strategic proficiencies to quickly close the qualification deficit:
+                            </p>
+                            {_tags(recs, "preferred")}
+                            </article>
+                            """)
+
+                        # Preferred breakdown expander
+                        if pref_matched or pref_missing:
+                            with st.expander("Secondary & Preferred Criteria Breakdown"):
+                                col_pm, col_pg = st.columns(2)
+                                with col_pm:
+                                    H(f"""
+                                    <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">MATCHED PREFERRED ({len(pref_matched)})</div>
+                                    {_tags(pref_matched, "matched")}
+                                    """)
+                                with col_pg:
+                                    H(f"""
+                                    <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">MISSING PREFERRED ({len(pref_missing)})</div>
+                                    {_tags(pref_missing, "missing")}
+                                    """)
+
                     else:
-                        st.error(f"Match API error {match_resp.status_code}: {match_resp.text}")
+                        st.error(f"Match API returned error {match_resp.status_code}: {match_resp.text}")
                 except requests.ConnectionError:
-                    st.error("❌ Cannot reach the backend. Make sure uvicorn is running.")
+                    st.error("Cannot connect to backend service. Please confirm uvicorn is running on http://127.0.0.1:8000.")
+
+    _render_footer()
