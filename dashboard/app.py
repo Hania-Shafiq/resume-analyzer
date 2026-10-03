@@ -332,7 +332,7 @@ if page == "Overview":
     with hero_left:
         H("""<section class="hero-section hero-copy">
 <span class="hero-label">AI RESUME SCREENING PLATFORM</span>
-<h1 class="hero-title">Resume Analyzer<span class="hero-tagline">Match Resumes to Job Descriptions Instantly</span></h1>
+<div role="heading" aria-level="1" class="hero-title">Resume Analyzer<span class="hero-tagline">Match Resumes to Job Descriptions Instantly</span></div>
 <p class="hero-subtext">Upload a PDF or DOCX resume, paste a job description, and get an ATS-style match score, skill gap analysis, and clear improvement recommendations in seconds.</p>
 </section>""")
         if st.button("Analyze a Resume", type="primary", key="hero_cta_btn"):
