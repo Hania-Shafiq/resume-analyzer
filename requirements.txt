@@ -10,3 +10,5 @@ sentence-transformers
 pandas
 numpy
 streamlit
+matplotlib
+seaborn
