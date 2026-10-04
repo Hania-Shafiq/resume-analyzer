@@ -548,7 +548,7 @@ elif page == "Upload Resume":
                     """)
 
                     with st.expander("Document preview text"):
-                        st.text(data["text_preview"])
+                        st.text(data.get("extracted_text") or data["text_preview"])
 
                 else:
                     err_msg = resp.json().get("detail", resp.text) if resp.headers.get("content-type") == "application/json" else resp.text
