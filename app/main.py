@@ -82,7 +82,7 @@ async def upload_resume(file: UploadFile = File(...)):
 
     Returns
     -------
-    JSON with keys: filename, char_count, skills, education, experience_years, text_preview.
+    JSON with keys: filename, char_count, skills, education, experience_years, text_preview, extracted_text.
     """
     # Read uploaded bytes
     raw_bytes = await file.read()
@@ -111,6 +111,8 @@ async def upload_resume(file: UploadFile = File(...)):
         "education":        [{"degree": e.degree, "field": e.field} for e in education],
         "experience_years": experience,
         "text_preview":     cleaned[:500] + ("..." if len(cleaned) > 500 else ""),
+        "extracted_text":   cleaned,
+        "raw_text":         raw_text,
     }
 
 

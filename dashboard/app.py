@@ -494,8 +494,10 @@ elif page == "Upload Resume":
                 )
                 if resp.status_code == 200:
                     data = resp.json()
+                    full_text = data.get("extracted_text") or data.get("text_preview", "")
                     st.session_state["resume_data"] = data
-                    st.session_state["resume_text"] = data.get("text_preview", "")
+                    st.session_state["full_resume_text"] = full_text
+                    st.session_state["resume_text"] = full_text
                     
                     st.success(f"Parsed {uploaded.name} — {data['char_count']:,} characters processed.")
 
@@ -676,9 +678,14 @@ elif page == "Match & Analysis":
     col_l, col_r = st.columns(2)
     with col_l:
         H('<span class="section-label">CANDIDATE SOURCE</span>')
+        initial_resume = (
+            st.session_state.get("full_resume_text")
+            or st.session_state.get("resume_data", {}).get("extracted_text")
+            or st.session_state.get("resume_text", "")
+        )
         resume_text = st.text_area(
             "Resume text",
-            value=st.session_state.get("resume_text", ""),
+            value=initial_resume,
             height=180,
             label_visibility="collapsed",
             placeholder="Paste candidate resume text or upload via Upload page...",
@@ -694,24 +701,39 @@ elif page == "Match & Analysis":
         )
 
     if st.button("Run Match & Gap Analysis", type="primary"):
-        if not resume_text.strip() or not jd_text.strip():
+        stored_full = (
+            st.session_state.get("full_resume_text")
+            or st.session_state.get("resume_data", {}).get("extracted_text")
+            or ""
+        )
+        text_preview_val = st.session_state.get("resume_data", {}).get("text_preview", "")
+        if stored_full and (
+            resume_text == stored_full
+            or (text_preview_val and resume_text == text_preview_val)
+            or (resume_text.endswith("...") and stored_full.startswith(resume_text.rstrip(".").rstrip()))
+        ):
+            analysis_resume_text = stored_full
+        else:
+            analysis_resume_text = resume_text if resume_text.strip() else stored_full
+
+        if not analysis_resume_text.strip() or not jd_text.strip():
             st.warning("Both candidate resume text and job specification are required.")
         else:
             with st.spinner("Calculating semantic alignment and identifying competency gaps..."):
                 try:
                     match_resp = requests.post(
                         f"{API_BASE}/match",
-                        json={"resume_text": resume_text, "job_description": jd_text},
+                        json={"resume_text": analysis_resume_text, "job_description": jd_text},
                         timeout=30,
                     )
                     gap_resp = requests.get(
                         f"{API_BASE}/skill-gap",
-                        params={"resume_text": resume_text, "job_description": jd_text},
+                        params={"resume_text": analysis_resume_text, "job_description": jd_text},
                         timeout=30,
                     )
                     rec_resp = requests.get(
                         f"{API_BASE}/recommendations",
-                        params={"resume_text": resume_text, "job_description": jd_text},
+                        params={"resume_text": analysis_resume_text, "job_description": jd_text},
                         timeout=30,
                     )
 
