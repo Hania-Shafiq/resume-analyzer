@@ -8,6 +8,7 @@ POST /job/analyze       Analyze a job description → required/preferred skills,
 POST /match             Score a resume text against a job description
 GET  /skill-gap         Identify skills present in JD but missing from resume
 GET  /recommendations   Suggest skills the candidate should learn
+POST /recommend-roles   Predict the best-fit job roles for a resume (with probability %)
 """
 
 import io
@@ -15,10 +16,11 @@ from typing import Annotated
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.parser import extract_text
 from app.preprocess import light_clean
+from app.recommender import load_model, recommend_roles
 from app.skills import (
     analyze_job_description,
     extract_skills,
@@ -64,6 +66,29 @@ class MatchRequest(BaseModel):
 class SkillGapRequest(BaseModel):
     resume_text: str
     job_description: str
+
+class RoleRecommendRequest(BaseModel):
+    resume_text: str = Field(..., description="Full resume text (e.g. `extracted_text` from /resume/upload).")
+    top_k: int = Field(4, ge=1, le=50, description="How many roles to return (capped at the number of known roles).")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "resume_text": "Data analyst with 4 years of experience building Power BI dashboards and SQL reports.",
+                "top_k": 4,
+            }
+        }
+    }
+
+
+class RoleScore(BaseModel):
+    role: str
+    probability_percent: float = Field(..., description="Probability in percent, 0-100.")
+
+
+class RoleRecommendResponse(BaseModel):
+    recommendations: list[RoleScore]
+    model: str | None = Field(None, description="Name of the classifier that produced the result.")
 
 
 # ---------------------------------------------------------------------------
@@ -233,3 +258,35 @@ def recommendations(resume_text: str, job_description: str = ""):
         "nice_to_add":            gap_preferred[:5],
         "note": "Course-link integration planned for Phase 4.",
     }
+
+
+@app.post("/recommend-roles", response_model=RoleRecommendResponse, tags=["Recommendations"])
+def recommend_job_roles(body: RoleRecommendRequest):
+    """Predict which job roles best fit a resume.
+
+    Uses the classifier trained in ``notebooks/03_job_classifier.ipynb``
+    (``app/models/job_classifier.joblib``).
+
+    Returns
+    -------
+    JSON: ``{"recommendations": [{"role": str, "probability_percent": float}, ...], "model": str}``
+    sorted by probability, highest first.
+
+    Errors
+    ------
+    400 : resume_text is empty.
+    422 : invalid body, or no usable text after cleaning.
+    503 : the trained model file does not exist yet (run the notebook).
+    """
+    if not body.resume_text.strip():
+        raise HTTPException(status_code=400, detail="resume_text must not be empty.")
+
+    try:
+        roles = recommend_roles(body.resume_text, top_k=body.top_k)
+        model_name = load_model().get("model_name")  # already cached by the call above
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    return {"recommendations": roles, "model": model_name}

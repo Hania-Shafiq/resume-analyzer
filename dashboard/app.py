@@ -1,5 +1,7 @@
 """Streamlit dashboard interface for the Resume Analyzer application."""
 
+import hashlib
+import html as _html
 from pathlib import Path
 import re
 import requests
@@ -75,6 +77,126 @@ def _api_ok() -> bool:
         return r.status_code == 200
     except Exception:
         return False
+
+# ---------------------------------------------------------------------------
+# Role recommendations — API call + card renderer
+# ---------------------------------------------------------------------------
+def _api_error_detail(resp: requests.Response) -> str:
+    """Pull a readable message out of a FastAPI error response."""
+    try:
+        detail = resp.json().get("detail", resp.text)
+    except (ValueError, AttributeError):
+        return resp.text or f"HTTP {resp.status_code}"
+    if isinstance(detail, list):  # pydantic validation errors come as a list of dicts
+        detail = "; ".join(str(d.get("msg", d)) if isinstance(d, dict) else str(d) for d in detail)
+    return str(detail)
+
+
+def _fetch_role_recommendations(resume_text: str, top_k: int = 4) -> tuple[dict | None, str | None]:
+    """Call POST /recommend-roles. Returns (data, error_message); exactly one is None.
+
+    Successful results are cached per (text, top_k) in session_state, because Streamlit
+    re-runs the whole script on every interaction and we don't want to re-predict each time.
+    Failures are NOT cached, so the next rerun retries automatically.
+    """
+    cache = st.session_state.setdefault("role_cache", {})
+    key = hashlib.sha1(f"{top_k}|{resume_text}".encode("utf-8")).hexdigest()
+    if key in cache:
+        return cache[key], None
+
+    try:
+        resp = requests.post(
+            f"{API_BASE}/recommend-roles",
+            json={"resume_text": resume_text, "top_k": top_k},
+            timeout=60,  # first call can be slow if the embedding model has to load
+        )
+    except requests.ConnectionError:
+        return None, f"Can't reach the backend at {API_BASE}. Start it with `uvicorn app.main:app --reload`."
+    except requests.Timeout:
+        return None, "Role prediction timed out. Please try again in a moment."
+    except requests.RequestException as exc:
+        return None, f"Role prediction failed: {exc}"
+
+    if resp.status_code != 200:
+        detail = _api_error_detail(resp)
+        if resp.status_code == 503:
+            return None, f"Role recommendations are not available yet. {detail}"
+        return None, f"Role recommendations failed ({resp.status_code}): {detail}"
+
+    try:
+        data = resp.json()
+    except ValueError:
+        return None, "The backend returned an unexpected response for role recommendations."
+    # NOTE: don't write a bare `data["recommendations"]` here. Streamlit "magic" would
+    # display it on the page as raw JSON.
+    if not isinstance(data, dict) or not isinstance(data.get("recommendations"), list):
+        return None, "The backend returned an unexpected response for role recommendations."
+        
+    cache[key] = data
+    return data, None
+
+
+def _render_role_recommendations(resume_text: str, top_k: int = 4) -> None:
+    """Fetch and show the top-k best-fit roles as ranked progress bars.
+
+    Never raises: loading shows a spinner, and any failure becomes a warning so the rest
+    of the page (skills, match score, ...) is unaffected.
+    """
+    if not resume_text or not resume_text.strip():
+        return
+
+    with st.spinner("Finding best-fit roles..."):
+        data, error = _fetch_role_recommendations(resume_text, top_k)
+
+    if error:
+        st.warning(error, icon=":material/warning:")
+        return
+
+    roles = data.get("recommendations") or []
+    if not roles:
+        st.info("No role recommendations were returned for this resume.")
+        return
+
+    top_pct = float(roles[0]["probability_percent"])
+    if top_pct >= 60:
+        badge_cls, verdict = "strong", "Clear fit"
+    elif top_pct >= 35:
+        badge_cls, verdict = "partial", "Likely fit"
+    else:
+        badge_cls, verdict = "neutral", "Mixed profile"
+
+    rows = []
+    for rank, r in enumerate(roles, start=1):
+        pct = max(0.0, min(100.0, float(r["probability_percent"])))
+        name = _html.escape(str(r["role"]))
+        rows.append(
+            f'<div class="role-row{" top" if rank == 1 else ""}">'
+            f'<span class="role-rank">{rank}</span>'
+            f'<div class="role-main">'
+            f'<div class="role-head"><span class="role-name">{name}</span>'
+            f'<span class="role-pct">{pct:.1f}%</span></div>'
+            f'<div class="role-bar" role="progressbar" aria-label="{name} match" '
+            f'aria-valuemin="0" aria-valuemax="100" aria-valuenow="{pct:.1f}">'
+            f'<div class="role-bar-fill" style="width: {pct:.1f}%;"></div></div>'
+            f'</div></div>'
+        )
+
+    model_name = _html.escape(str(data.get("model") or "role classifier"))
+    H(f"""
+    <article class="bento-card fade-up-3" style="margin-top: 0.5rem;">
+    <div class="role-card-head">
+    <div>
+    <span class="section-label">CAREER FIT</span>
+    <h2 class="card-title">Recommended Roles</h2>
+    </div>
+    <div class="score-verdict-badge {badge_cls}">{verdict}</div>
+    </div>
+    <p class="role-caption">Share of the model's confidence across all roles it knows. Percentages are relative to each other, not an absolute grade.</p>
+    <div class="role-list">{"".join(rows)}</div>
+    <p class="role-foot">Predicted from resume text by {model_name}. Use as guidance, not a verdict.</p>
+    </article>
+    """)
+
 
 
 def _render_top_bar(alive: bool) -> None:
@@ -547,6 +669,9 @@ elif page == "Upload Resume":
                     </article>
                     """)
 
+                    # Role recommendations (own spinner + graceful error handling)
+                    _render_role_recommendations(full_text)
+
                     with st.expander("Document preview text"):
                         st.text(data.get("extracted_text") or data["text_preview"])
 
@@ -837,6 +962,9 @@ elif page == "Match & Analysis":
                             {_tags(recs, "preferred")}
                             </article>
                             """)
+
+                        # Role recommendations for the same resume text
+                        _render_role_recommendations(analysis_resume_text)
 
                         # Preferred breakdown expander
                         if pref_matched or pref_missing:

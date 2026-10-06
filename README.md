@@ -18,6 +18,7 @@ The **Resume Analyzer** (`resume-analyzer`) is an end-to-end NLP and machine lea
 - **Semantic & Keyword Matching**: Combines rule-based skill overlap with transformer embeddings for deep contextual candidate-job matching.
 - **Skill Gap Detection**: Pinpoints missing skills required by a job and categorizes them by priority.
 - **Job & Course Recommendations**: Suggests matching job roles and relevant learning paths based on detected candidate gaps.
+- **Job Role Recommendation**: Predicts the best-fit job roles for a resume (top 4, with probability %) using a classifier trained on a labelled resume dataset (TF-IDF + Logistic Regression, compared against sentence embeddings + Logistic Regression).
 - **Interactive Dashboard**: A user-friendly Streamlit web interface for candidates and recruiters to upload resumes, view match scores, and explore gap reports.
 
 ---
@@ -45,14 +46,28 @@ resume-analyzer/
 │   ├── preprocess.py         # Text normalization, tokenization, and cleaning
 │   ├── skills.py             # Skill extraction and taxonomy lookup engine
 │   ├── matcher.py            # Composite resume-to-job matching algorithm
-│   ├── recommender.py        # Skill gap analysis and career recommendations
-│   └── data/                 # Local data storage, skill taxonomies, and datasets
+│   ├── recommender.py        # Job-role prediction: recommend_roles()
+│   ├── data/                 # Skill taxonomy and datasets
+│   │   ├── skills.json       # Canonical skill taxonomy
+│   │   └── resume_dataset.csv  # Labelled resumes (Category, Resume_str) for role classifier
+│   └── models/
+│       └── job_classifier.joblib  # Trained role classifier (created by notebook 03)
 ├── dashboard/
-│   └── app.py                # Streamlit interactive UI application
+│   ├── app.py                # Streamlit interactive UI application
+│   └── style.css             # Dashboard theme
 ├── notebooks/                # Jupyter exploration and experimentation notebooks
+│   ├── 01_nlp_basics.ipynb
+│   ├── 02_embeddings_demo.ipynb
+│   └── 03_job_classifier.ipynb   # Trains and compares the job-role classifiers
 ├── tests/
 │   ├── __init__.py           # Package marker for test suite
-│   └── test_parser.py        # Unit tests and CLI runner for parser
+│   ├── test_parser.py        # Unit tests and CLI runner for parser
+│   ├── test_skills.py
+│   ├── test_jd_analysis.py
+│   ├── test_matcher.py
+│   ├── test_upload_flow.py
+│   ├── test_recommender.py          # recommend_roles() tests
+│   └── test_recommend_endpoint.py   # POST /recommend-roles tests
 ├── .gitignore                # Git ignore rules for venv, cache, and temp files
 ├── requirements.txt          # Python project dependencies
 └── README.md                 # Project documentation and guide
@@ -126,6 +141,24 @@ python -m spacy download en_core_web_sm
 
 ---
 
+## 🎯 Job Role Recommendation: One-Time Model Setup
+
+The **Recommended Roles** feature needs a trained model file (`app/models/job_classifier.joblib`). It is created once by running a notebook.
+
+1. **Place the dataset** at `app/data/resume_dataset.csv` (two columns: `Category` = job role, `Resume_str` = resume text).
+2. **Train the model.** With the virtual environment activated, open the notebook and run every cell (**Kernel → Restart & Run All**):
+   ```bash
+   pip install jupyter ipykernel
+   jupyter notebook notebooks/03_job_classifier.ipynb
+   ```
+   The notebook cleans the text, trains **TF-IDF + Logistic Regression** and **sentence embeddings + Logistic Regression**, compares them, and saves the better one to `app/models/job_classifier.joblib`.
+   > The first run downloads the `all-MiniLM-L6-v2` model (~90 MB), so an internet connection is needed. Allow 1–3 minutes on CPU.
+3. **Restart the backend** after training. The API keeps the model in memory, so a running server won't see a newly trained model until it is restarted.
+
+Once the model exists, the **Recommended Roles** card appears in the dashboard on the **Upload Resume** page (below *Extracted Skills*) and on the **Match & Analysis** page (below the Strengths / Gaps / Learning Priorities cards). Percentages show relative fit among the roles in the dataset, not an absolute score.
+
+---
+
 ## 🏃 How to Run
 
 Make sure your virtual environment (`.venv`) is activated before running any of the following commands:
@@ -154,7 +187,12 @@ python tests/test_parser.py
 
 # Or parse a sample resume directly using the parser CLI runner
 python tests/test_parser.py "path/to/sample_resume.pdf"
+
+# Role-recommendation tests only
+pytest tests/test_recommender.py tests/test_recommend_endpoint.py
 ```
+
+> Model-dependent role tests are **skipped automatically** until `app/models/job_classifier.joblib` exists. Run notebook `03_job_classifier.ipynb` first to enable them.
 
 ---
 
@@ -182,20 +220,58 @@ curl -X POST "http://127.0.0.1:8000/job/analyze" \
 ```bash
 curl -X POST "http://127.0.0.1:8000/match" \
   -H "Content-Type: application/json" \
-  -d '{"resume_id": "res_12345", "job_id": "job_67890"}'
+  -d '{"resume_text": "Python developer with FastAPI and Docker experience.", "job_description": "Requirements\nPython, FastAPI, Docker, PostgreSQL"}'
 ```
 
 ### 4. Detect Skill Gaps
 **`GET /skill-gap`**
 ```bash
-curl -X GET "http://127.0.0.1:8000/skill-gap?resume_id=res_12345&job_id=job_67890"
+curl -G "http://127.0.0.1:8000/skill-gap" \
+  --data-urlencode "resume_text=Python developer with FastAPI experience" \
+  --data-urlencode "job_description=Requirements: Python, FastAPI, Docker"
 ```
 
 ### 5. Get Job / Course Recommendations
 **`GET /recommendations`**
 ```bash
-curl -X GET "http://127.0.0.1:8000/recommendations?resume_id=res_12345"
+curl -G "http://127.0.0.1:8000/recommendations" \
+  --data-urlencode "resume_text=Python developer with FastAPI experience"
 ```
+
+### 6. Recommend Job Roles
+**`POST /recommend-roles`**
+```bash
+curl -X POST "http://127.0.0.1:8000/recommend-roles" \
+  -H "Content-Type: application/json" \
+  -d '{"resume_text": "Data analyst with 4 years of experience building Power BI dashboards and SQL reports.", "top_k": 4}'
+```
+
+Example response (values are illustrative):
+```json
+{
+  "recommendations": [
+    {"role": "Data Analyst", "probability_percent": 76.4},
+    {"role": "Business Analyst", "probability_percent": 9.1},
+    {"role": "Data Science", "probability_percent": 6.2},
+    {"role": "Database Administrator", "probability_percent": 3.0}
+  ],
+  "model": "TF-IDF + LR"
+}
+```
+
+| Field | Description |
+| :--- | :--- |
+| `resume_text` | Full resume text (e.g. `extracted_text` returned by `/resume/upload`) |
+| `top_k` | Optional, default `4`, allowed range 1–50 |
+
+| Status | Meaning |
+| :---: | :--- |
+| `200` | Success |
+| `400` | `resume_text` is empty |
+| `422` | Invalid request body (e.g. `top_k` out of range) |
+| `503` | Model not trained yet; run `notebooks/03_job_classifier.ipynb` |
+
+> **Windows tip:** quoting JSON in `cmd.exe` is awkward. Use the Swagger UI at `http://127.0.0.1:8000/docs` instead.
 
 ---
 
@@ -257,6 +333,13 @@ $$\text{Final Score} = 0.40 \cdot S_{\text{skills}} + 0.40 \cdot S_{\text{semant
 - [ ] **Phase 7: Testing, Evaluation & Documentation**
   - [ ] Comprehensive test suite
   - [ ] Precision, Recall, and F1 evaluation
+- [x] **Phase 8: Job Role Classifier**
+  - [x] EDA, text cleaning, and stratified split (`notebooks/03_job_classifier.ipynb`)
+  - [x] TF-IDF + Logistic Regression vs. sentence embeddings + Logistic Regression
+  - [x] Best model saved with joblib (`app/models/job_classifier.joblib`)
+  - [x] `recommend_roles()` in `app/recommender.py`
+  - [x] `POST /recommend-roles` endpoint
+  - [x] "Recommended Roles" card in the Streamlit dashboard
 
 ---
 
@@ -295,6 +378,30 @@ $$\text{Final Score} = 0.40 \cdot S_{\text{skills}} + 0.40 \cdot S_{\text{semant
     ```bash
     streamlit run dashboard/app.py --server.port 8502
     ```
+
+### 5. `Trained model not found ... Run notebooks/03_job_classifier.ipynb`
+- **Cause**: `app/models/job_classifier.joblib` doesn't exist yet. The API returns `503` and the dashboard shows a yellow warning instead of the Recommended Roles card.
+- **Fix**: Run all cells of `notebooks/03_job_classifier.ipynb` (see *Job Role Recommendation: One-Time Model Setup*), then restart `uvicorn`.
+
+### 6. Recommended Roles card is missing in the dashboard
+- **Cause**: The backend isn't running, the model hasn't been trained, or the browser is showing an old version.
+- **Fix**: Start `uvicorn app.main:app --reload`, make sure the model file exists, restart Streamlit, and hard-refresh the page (`Ctrl+Shift+R`).
+
+### 7. Roles didn't change after retraining the model
+- **Cause**: The API caches the model in memory.
+- **Fix**: Restart `uvicorn`.
+
+### 8. `FileNotFoundError: ...resume_dataset.csv` in the notebook
+- **Cause**: The dataset isn't at the expected path.
+- **Fix**: Copy it to `app/data/resume_dataset.csv` (create the `app/data` folder if needed).
+
+### 9. `InconsistentVersionWarning` or the model fails to load after upgrading scikit-learn
+- **Cause**: A `.joblib` file only loads reliably with the scikit-learn version that created it.
+- **Fix**: Re-run `notebooks/03_job_classifier.ipynb` in your current environment to regenerate the model.
+
+### 10. Notebook says `No module named 'app'`
+- **Cause**: Jupyter was started from the wrong folder.
+- **Fix**: Launch Jupyter from the project root (`jupyter notebook`) and open the notebook from `notebooks/`.
 
 ---
 
