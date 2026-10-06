@@ -372,7 +372,7 @@ def _render_footer() -> None:
 # ---------------------------------------------------------------------------
 alive = _api_ok()
 
-NAV_PAGES = ["Overview", "Upload Resume", "Job Description", "Match & Analysis"]
+NAV_PAGES = ["Overview", "Upload Resume", "Job Description", "Match & Analysis", "Bulk Upload & Rank"]
 if "nav_page" not in st.session_state:
     st.session_state["nav_page"] = "Overview"
 
@@ -394,6 +394,7 @@ with st.sidebar:
         "Upload Resume": ":material/upload_file:",
         "Job Description": ":material/description:",
         "Match & Analysis": ":material/analytics:",
+        "Bulk Upload & Rank": ":material/group_work:",
     }
     for _p in NAV_PAGES:
         _active = st.session_state["nav_page"] == _p
@@ -987,3 +988,318 @@ elif page == "Match & Analysis":
                     st.error("Cannot connect to backend service. Please confirm uvicorn is running on http://127.0.0.1:8000.")
 
     _render_footer()
+
+
+# ── Bulk Upload & Rank ───────────────────────────────────────────────────────
+elif page == "Bulk Upload & Rank":
+    H("""
+    <section class="hero-section">
+    <span class="hero-label">TALENT POOL INTELLIGENCE</span>
+    <h1 class="hero-headline">Bulk Resume Screening & Candidate Ranking</h1>
+    <p class="hero-subtext">Upload batches of resumes (PDF, DOCX, TXT) to evaluate against role requirements, detect skill gaps, and instantly shortlist top candidates.</p>
+    </section>
+    """)
+
+    # --- Section 1: Job Description Input ---
+    H('<span class="section-label">STEP 1: TARGET ROLE BENCHMARK</span>')
+    bulk_jd_default = st.session_state.get("jd_text", "") or st.session_state.get("bulk_jd_text", "")
+    bulk_jd = st.text_area(
+        "Target Job Description",
+        value=bulk_jd_default,
+        height=160,
+        placeholder="Paste role description with required and preferred qualifications here...",
+        help="All resumes will be evaluated and ranked against these requirements.",
+        key="bulk_jd_input",
+    )
+    st.session_state["bulk_jd_text"] = bulk_jd
+
+    H('<div style="height: 1rem;"></div>')
+
+    # --- Section 2: Bulk File Uploader ---
+    H('<span class="section-label">STEP 2: RESUME BATCH UPLOAD (UP TO 200 FILES)</span>')
+    bulk_files = st.file_uploader(
+        "Upload multiple resumes (PDF, DOCX, TXT)",
+        type=["pdf", "docx", "txt"],
+        accept_multiple_files=True,
+        label_visibility="collapsed",
+        key="bulk_file_uploader",
+    )
+
+    if bulk_files:
+        st.caption(f"📁 **{len(bulk_files)} files selected** for analysis.")
+
+    # --- Section 3: Run Analysis Trigger ---
+    col_run, _ = st.columns([1, 2])
+    with col_run:
+        run_bulk = st.button("🚀 Analyze & Rank Resumes", type="primary", use_container_width=True)
+
+    if run_bulk:
+        if not bulk_jd.strip():
+            st.warning("⚠️ Please provide a target Job Description before running bulk screening.")
+        elif not bulk_files:
+            st.warning("⚠️ Please upload at least one resume (PDF, DOCX, or TXT).")
+        else:
+            with st.status("Screening candidate cohort...", expanded=True) as status:
+                st.write(f"Preparing {len(bulk_files)} files...")
+                files_payload = [
+                    ("files", (f.name, f.getvalue(), f.type or "application/octet-stream"))
+                    for f in bulk_files
+                ]
+
+                st.write("Submitting batch to FastAPI screening pipeline...")
+                try:
+                    resp = requests.post(
+                        f"{API_BASE}/resume/bulk-analyze",
+                        files=files_payload,
+                        data={"job_description": bulk_jd},
+                        timeout=180,
+                    )
+
+                    if resp.status_code == 200:
+                        bulk_data = resp.json()
+                        st.session_state["bulk_raw_results"] = bulk_data
+                        status.update(label="Batch screening completed successfully!", state="complete", expanded=False)
+                        st.success(f"Successfully processed {bulk_data['summary']['total_uploaded']} resumes.")
+                    else:
+                        err_detail = resp.json().get("detail", resp.text) if resp.headers.get("content-type") == "application/json" else resp.text
+                        status.update(label=f"Analysis failed: {err_detail}", state="error")
+                        st.error(f"Bulk analysis error ({resp.status_code}): {err_detail}")
+
+                except requests.ConnectionError:
+                    status.update(label="API connection failed", state="error")
+                    st.error("Cannot connect to backend service at http://127.0.0.1:8000.")
+                except Exception as exc:
+                    status.update(label=f"Unexpected error: {exc}", state="error")
+                    st.error(f"Error during batch screening: {exc}")
+
+    # --- Section 4: Display Results & Summary ---
+    if "bulk_raw_results" in st.session_state:
+        raw_res = st.session_state["bulk_raw_results"]
+        summary = raw_res["summary"]
+        all_results = raw_res["results"]
+
+        H('<div style="height: 1.5rem;"></div>')
+        H('<span class="section-label">COHORT OVERVIEW</span>')
+
+        s1, s2, s3, s4 = st.columns(4)
+        with s1:
+            H(f"""
+            <article class="bento-card fade-up-1">
+            <span class="section-label">UPLOADED</span>
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.85rem; font-weight: 600; color: var(--text-primary);">
+            {summary['total_uploaded']}
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 4px;">Total files received</div>
+            </article>
+            """)
+        with s2:
+            H(f"""
+            <article class="bento-card fade-up-2">
+            <span class="section-label">ANALYZED</span>
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.85rem; font-weight: 600; color: var(--accent-emerald);">
+            {summary['total_analyzed']}
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 4px;">Successfully parsed</div>
+            </article>
+            """)
+        with s3:
+            fail_color = "var(--semantic-rose)" if summary['total_failed'] > 0 else "var(--text-tertiary)"
+            H(f"""
+            <article class="bento-card fade-up-3">
+            <span class="section-label">FAILED / REJECTED</span>
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.85rem; font-weight: 600; color: {fail_color};">
+            {summary['total_failed']}
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 4px;">Parse or format issues</div>
+            </article>
+            """)
+        with s4:
+            dup_color = "var(--semantic-amber)" if summary['total_duplicates'] > 0 else "var(--text-tertiary)"
+            H(f"""
+            <article class="bento-card fade-up-4">
+            <span class="section-label">DUPLICATES</span>
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.85rem; font-weight: 600; color: {dup_color};">
+            {summary['total_duplicates']}
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 4px;">Identical file hashes</div>
+            </article>
+            """)
+
+        # Per-file processing status expander
+        with st.expander("📋 File Intake Status Log (Details & Errors)"):
+            for entry in all_results:
+                fname = entry.get("filename", "unknown")
+                status_val = entry.get("status", "unknown")
+                if status_val == "analyzed":
+                    st.markdown(f"✅ **{fname}** — Analyzed (Score: **{int(round(entry.get('match_score', 0) * 100))}%**)")
+                elif status_val == "duplicate":
+                    st.markdown(f"⚠️ **{fname}** — Duplicate ({entry.get('error', 'Already seen')})")
+                else:
+                    st.markdown(f"❌ **{fname}** — Failed: *{entry.get('error', 'Unknown error')}*")
+
+        # --- Section 5: Top-N Shortlisting & Ranking ---
+        analyzed_candidates = [r for r in all_results if r.get("status") == "analyzed"]
+        if analyzed_candidates:
+            H('<div style="height: 1.5rem;"></div>')
+            H('<span class="section-label">SHORTLIST CONTROLS</span>')
+
+            total_avail = len(analyzed_candidates)
+            if "top_n_choice" not in st.session_state:
+                st.session_state["top_n_choice"] = min(5, total_avail)
+
+            col_preset, col_custom = st.columns([2, 1], gap="medium")
+            with col_preset:
+                st.write("**How many candidates to shortlist?**")
+                p5, p10, p20, p_all = st.columns(4)
+                if p5.button("Top 5", use_container_width=True, type="primary" if st.session_state["top_n_choice"] == 5 else "secondary"):
+                    st.session_state["top_n_choice"] = 5
+                    st.rerun()
+                if p10.button("Top 10", use_container_width=True, type="primary" if st.session_state["top_n_choice"] == 10 else "secondary"):
+                    st.session_state["top_n_choice"] = 10
+                    st.rerun()
+                if p20.button("Top 20", use_container_width=True, type="primary" if st.session_state["top_n_choice"] == 20 else "secondary"):
+                    st.session_state["top_n_choice"] = 20
+                    st.rerun()
+                if p_all.button(f"All ({total_avail})", use_container_width=True, type="primary" if st.session_state["top_n_choice"] == total_avail else "secondary"):
+                    st.session_state["top_n_choice"] = total_avail
+                    st.rerun()
+
+            with col_custom:
+                custom_n = st.number_input(
+                    "Custom N",
+                    min_value=1,
+                    max_value=max(total_avail, 1),
+                    value=min(st.session_state["top_n_choice"], max(total_avail, 1)),
+                    step=1,
+                )
+                if custom_n != st.session_state["top_n_choice"]:
+                    st.session_state["top_n_choice"] = custom_n
+                    st.rerun()
+
+            chosen_n = st.session_state["top_n_choice"]
+
+            # Instant re-ranking via API
+            try:
+                rank_resp = requests.post(
+                    f"{API_BASE}/rank",
+                    json={"results": all_results, "top_n": chosen_n},
+                    timeout=10,
+                )
+                if rank_resp.status_code == 200:
+                    rank_data = rank_resp.json()
+                    ranked_list = rank_data.get("ranked", [])
+                    notice = rank_data.get("notice")
+
+                    if notice:
+                        st.info(f"ℹ️ {notice}")
+
+                    # Export & Action Bar
+                    top_bar_l, top_bar_r = st.columns([2, 1])
+                    with top_bar_l:
+                        H(f"""
+                        <h2 class="card-title" style="margin-top: 0.5rem;">
+                        Top {len(ranked_list)} Shortlisted Candidates
+                        </h2>
+                        """)
+                    with top_bar_r:
+                        try:
+                            csv_resp = requests.post(
+                                f"{API_BASE}/export/csv",
+                                json={"ranked": ranked_list},
+                                timeout=10,
+                            )
+                            if csv_resp.status_code == 200:
+                                st.download_button(
+                                    label="📥 Export Shortlist (CSV)",
+                                    data=csv_resp.content,
+                                    file_name="candidate_shortlist.csv",
+                                    mime="text/csv",
+                                    use_container_width=True,
+                                )
+                        except Exception:
+                            pass
+
+                    # Candidate Cards
+                    for cand in ranked_list:
+                        rank_num = cand.get("rank", 1)
+                        c_name = cand.get("candidate_name") or cand.get("filename", "")
+                        score = cand.get("match_score", 0)
+                        pct = int(round(score * 100))
+                        exp = cand.get("experience_years")
+                        exp_str = f"{exp} yrs" if exp else "Not indicated"
+
+                        req_m = cand.get("required_matched", [])
+                        req_gap = cand.get("required_missing", [])
+                        reason = cand.get("rank_reason", "")
+
+                        score_badge_cls = "strong" if pct >= 70 else ("partial" if pct >= 40 else "weak")
+
+                        prof_val = cand.get("professional_experience_str") or (f"{cand.get('experience_years')} yrs" if cand.get("experience_years") else "Not indicated")
+                        free_val = cand.get("freelance_experience_str") or "None"
+                        if not cand.get("professional_experience_str") and not cand.get("experience_years") and free_val == "None":
+                            prof_val = "Not indicated"
+                            free_val = "Not indicated"
+
+                        intern_sub = f" <span style='font-size: 0.72rem; color: var(--text-tertiary);'>(incl. internship)</span>" if cand.get("internship_note") else ""
+                        comb_sub = f" <span style='font-size: 0.72rem; color: var(--text-tertiary);'>(Total: {cand.get('combined_experience_str')})</span>" if cand.get("combined_experience_str") else ""
+
+                        H(f"""
+                        <article class="bento-card fade-up-1" style="margin-bottom: 1rem; border-left: 4px solid var(--accent-emerald);">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                        <div style="
+                            font-family: 'JetBrains Mono', monospace;
+                            font-size: 1.6rem;
+                            font-weight: 700;
+                            color: var(--accent-emerald);
+                            background: rgba(16, 185, 129, 0.1);
+                            padding: 6px 14px;
+                            border-radius: 8px;
+                            border: 1px solid rgba(16, 185, 129, 0.25);
+                        ">
+                        #{rank_num}
+                        </div>
+                        <div>
+                        <h3 style="font-size: 1.15rem; font-weight: 600; color: var(--text-primary); margin: 0;">
+                        {c_name}
+                        </h3>
+                        <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 3px;">
+                        File: {cand.get('filename', '')} &bull; Professional Experience: <strong style="color: var(--text-secondary);">{prof_val}</strong>{intern_sub} &bull; Freelance Experience: <strong style="color: var(--text-secondary);">{free_val}</strong>{comb_sub}
+                        </div>
+                        </div>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">
+                        {pct}%
+                        </div>
+                        <span class="score-verdict-badge {score_badge_cls}">{score_badge_cls.capitalize()}</span>
+                        </div>
+                        </div>
+                        <div style="font-size: 0.82rem; color: var(--text-secondary); margin: 0.75rem 0 0.5rem 0; font-style: italic;">
+                        {reason}
+                        </div>
+                        <div style="margin-top: 0.75rem;">
+                        <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; text-transform: uppercase;">
+                        Key Matched Competencies:
+                        </div>
+                        {_tags(req_m, 'matched')}
+                        </div>
+                        """)
+                        if req_gap:
+                            H(f"""
+                            <div style="margin-top: 0.5rem;">
+                            <div style="font-size: 0.75rem; font-weight: 600; color: var(--semantic-rose); margin-bottom: 4px; text-transform: uppercase;">
+                            Missing Requirements:
+                            </div>
+                            {_tags(req_gap, 'missing')}
+                            </div>
+                            """)
+                        H("</article>")
+
+                else:
+                    st.error(f"Ranking endpoint failed: {rank_resp.text}")
+            except Exception as exc:
+                st.error(f"Error fetching ranked list: {exc}")
+
+    _render_footer()
+

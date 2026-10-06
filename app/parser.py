@@ -48,9 +48,9 @@ def extract_text(file_path_or_bytes: Union[str, Path, bytes, bytearray, BinaryIO
     ext = Path(target_name).suffix.lower()
 
     # Step 2: Validate supported extensions
-    if ext not in [".pdf", ".docx"]:
+    if ext not in [".pdf", ".docx", ".txt"]:
         raise ValueError(
-            f"Unsupported file format '{ext}'. Only .pdf and .docx files are supported."
+            f"Unsupported file format '{ext}'. Only .pdf, .docx, and .txt files are supported."
         )
 
     # Step 3: Check if file path exists or read bytes
@@ -121,6 +121,17 @@ def extract_text(file_path_or_bytes: Union[str, Path, bytes, bytearray, BinaryIO
             if isinstance(e, ValueError):
                 raise
             raise ValueError(f"Failed to parse DOCX document: {e}") from e
+
+    elif ext == ".txt":
+        # Decode plain text bytes as UTF-8 (with fallback for encoding issues)
+        try:
+            text_content = raw_bytes.decode("utf-8", errors="replace")
+            for line in text_content.splitlines():
+                stripped = line.strip()
+                if stripped:
+                    extracted_chunks.append(stripped)
+        except Exception as e:
+            raise ValueError(f"Failed to read TXT document: {e}") from e
 
     # Step 5: Clean and normalize the extracted text
     combined_text = "\n".join(extracted_chunks)

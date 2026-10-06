@@ -19,7 +19,7 @@ class TestParser(unittest.TestCase):
     def test_unsupported_file_extension(self):
         """Ensure an unsupported extension raises a ValueError."""
         with self.assertRaises(ValueError) as ctx:
-            extract_text(b"some content", filename="resume.txt")
+            extract_text(b"some content", filename="resume.xyz")
         self.assertIn("Unsupported file format", str(ctx.exception))
 
     def test_empty_bytes_input(self):

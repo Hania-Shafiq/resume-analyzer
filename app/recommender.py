@@ -113,6 +113,18 @@ def load_model(path: str = str(MODEL_PATH)) -> dict[str, Any]:
     bundle = joblib.load(model_path)
     if bundle.get("kind") not in {"tfidf", "embedding"}:
         raise ValueError(f"Unrecognised model kind in {model_path}: {bundle.get('kind')!r}")
+
+    # Compatibility fix for LogisticRegression unpickled across scikit-learn versions
+    estimator = bundle.get("estimator")
+    if estimator is not None:
+        models = [estimator]
+        if hasattr(estimator, "steps"):
+            models.extend(step for _, step in estimator.steps)
+        for m in models:
+            if hasattr(m, "__class__") and "LogisticRegression" in m.__class__.__name__:
+                if not hasattr(m, "multi_class"):
+                    m.multi_class = "auto"
+
     return bundle
 
 

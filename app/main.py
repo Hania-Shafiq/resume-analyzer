@@ -9,18 +9,27 @@ POST /match             Score a resume text against a job description
 GET  /skill-gap         Identify skills present in JD but missing from resume
 GET  /recommendations   Suggest skills the candidate should learn
 POST /recommend-roles   Predict the best-fit job roles for a resume (with probability %)
+POST /resume/bulk-analyze  Bulk upload + analyze multiple resumes against a JD
+POST /rank              Rank analyzed candidates with Top-N shortlisting
+POST /export/csv        Export ranked shortlist as CSV download
 """
 
+import csv
+import hashlib
 import io
-from typing import Annotated
+from pathlib import Path
+from typing import Annotated, List
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.parser import extract_text
 from app.preprocess import light_clean
+from app.ranker import rank_candidates
 from app.recommender import load_model, recommend_roles
+from app.experience import extract_experience
 from app.skills import (
     analyze_job_description,
     extract_skills,
@@ -89,6 +98,23 @@ class RoleScore(BaseModel):
 class RoleRecommendResponse(BaseModel):
     recommendations: list[RoleScore]
     model: str | None = Field(None, description="Name of the classifier that produced the result.")
+
+
+class RankRequest(BaseModel):
+    results: list
+    top_n: int | None = None
+
+
+class ExportRequest(BaseModel):
+    ranked: list
+
+
+# ---------------------------------------------------------------------------
+# Constants — upload limits
+# ---------------------------------------------------------------------------
+MAX_FILES = 200
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
 
 
 # ---------------------------------------------------------------------------
@@ -290,3 +316,229 @@ def recommend_job_roles(body: RoleRecommendRequest):
         raise HTTPException(status_code=422, detail=str(exc))
 
     return {"recommendations": roles, "model": model_name}
+
+
+# ---------------------------------------------------------------------------
+# Bulk Upload + Analyze
+# ---------------------------------------------------------------------------
+
+@app.post("/resume/bulk-analyze", tags=["Bulk Analysis"])
+async def bulk_analyze(
+    files: List[UploadFile] = File(...),
+    job_description: str = Form(...),
+):
+    """Upload multiple resumes and score each against a job description.
+
+    Accepts PDF, DOCX, and TXT files. Max 200 files, 10 MB each.
+    Duplicate files (by SHA-256 hash) are detected and skipped.
+    One failed file does NOT stop the rest.
+
+    Returns
+    -------
+    JSON with ``summary`` (counts) and ``results`` (per-file details).
+    """
+    if not job_description.strip():
+        raise HTTPException(status_code=400, detail="job_description must not be empty.")
+
+    if len(files) > MAX_FILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many files. Maximum is {MAX_FILES}, got {len(files)}.",
+        )
+
+    # Pre-analyze the JD once (shared across all resumes)
+    try:
+        jd_analysis = analyze_job_description(job_description)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=f"JD analysis failed: {exc}")
+
+    required = set(jd_analysis.required_skills)
+    preferred = set(jd_analysis.preferred_skills)
+
+    results: list[dict] = []
+    seen_hashes: dict[str, str] = {}  # hash → first filename
+    summary = {
+        "total_uploaded": len(files),
+        "total_analyzed": 0,
+        "total_failed": 0,
+        "total_duplicates": 0,
+    }
+
+    for file in files:
+        entry: dict = {"filename": file.filename, "status": "failed", "error": None}
+
+        try:
+            # --- Validate extension ---
+            ext = Path(file.filename or "").suffix.lower()
+            if ext not in ALLOWED_EXTENSIONS:
+                entry["error"] = (
+                    f"Unsupported format '{ext}'. "
+                    f"Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+                )
+                summary["total_failed"] += 1
+                results.append(entry)
+                continue
+
+            # --- Read bytes ---
+            raw_bytes = await file.read()
+
+            if not raw_bytes:
+                entry["error"] = "File is empty (0 bytes)."
+                summary["total_failed"] += 1
+                results.append(entry)
+                continue
+
+            # --- Size check ---
+            if len(raw_bytes) > MAX_FILE_SIZE:
+                entry["error"] = (
+                    f"File too large ({len(raw_bytes) / (1024*1024):.1f} MB). "
+                    f"Maximum is {MAX_FILE_SIZE / (1024*1024):.0f} MB."
+                )
+                summary["total_failed"] += 1
+                results.append(entry)
+                continue
+
+            # --- Duplicate detection ---
+            content_hash = hashlib.sha256(raw_bytes).hexdigest()
+            if content_hash in seen_hashes:
+                entry["status"] = "duplicate"
+                entry["error"] = f"Duplicate of {seen_hashes[content_hash]}"
+                entry["content_hash"] = content_hash
+                summary["total_duplicates"] += 1
+                results.append(entry)
+                continue
+
+            seen_hashes[content_hash] = file.filename
+
+            # --- Parse ---
+            raw_text = extract_text(raw_bytes, filename=file.filename)
+            cleaned = light_clean(raw_text)
+
+            # --- Extract structured info ---
+            skills = extract_skills(cleaned)
+            education = extract_education(cleaned)
+            experience = extract_experience_years(cleaned)
+            exp_summary = extract_experience(raw_text)
+
+            # --- Score against JD ---
+            resume_skills = set(skills)
+            req_matched = sorted(resume_skills & required)
+            pref_matched = sorted(resume_skills & preferred)
+            req_missing = sorted(required - resume_skills)
+            pref_missing = sorted(preferred - resume_skills)
+
+            req_score = len(req_matched) / max(len(required), 1)
+            pref_score = len(pref_matched) / max(len(preferred), 1)
+            match_score = round(0.80 * req_score + 0.20 * pref_score, 4)
+
+            # Derive candidate name from filename
+            candidate_name = Path(file.filename).stem
+            # Strip common prefixes like 'resume_001_'
+            import re as _re
+            name_clean = _re.sub(r"^resume_?\d*_?", "", candidate_name, flags=_re.IGNORECASE)
+            if name_clean:
+                candidate_name = name_clean.replace("_", " ").replace("-", " ").title()
+
+            entry.update({
+                "status": "analyzed",
+                "candidate_name": candidate_name,
+                "content_hash": content_hash,
+                "skills": skills,
+                "experience_years": experience,
+                "professional_months": exp_summary.professional_months,
+                "freelance_months": exp_summary.freelance_months,
+                "professional_experience_str": exp_summary.professional_str,
+                "freelance_experience_str": exp_summary.freelance_str,
+                "combined_experience_str": exp_summary.combined_str,
+                "has_internships": exp_summary.has_internships,
+                "internship_note": exp_summary.internship_note,
+                "education": [
+                    {"degree": e.degree, "field": e.field} for e in education
+                ],
+                "match_score": match_score,
+                "required_matched": req_matched,
+                "required_missing": req_missing,
+                "preferred_matched": pref_matched,
+                "preferred_missing": pref_missing,
+                "total_required": len(required),
+                "total_preferred": len(preferred),
+                "skills_match_count": len(req_matched) + len(pref_matched),
+                "error": None,
+            })
+            summary["total_analyzed"] += 1
+
+        except Exception as exc:
+            entry["error"] = str(exc)
+            summary["total_failed"] += 1
+
+        results.append(entry)
+
+    return {"summary": summary, "results": results}
+
+
+# ---------------------------------------------------------------------------
+# Ranking
+# ---------------------------------------------------------------------------
+
+@app.post("/rank", tags=["Ranking"])
+def rank_resumes(body: RankRequest):
+    """Rank analyzed candidates by match score with Top-N shortlisting.
+
+    Tie-breaking: score DESC → skills_match_count DESC →
+    professional_months DESC → freelance_months DESC → candidate_name ASC.
+    """
+    try:
+        return rank_candidates(body.results, top_n=body.top_n)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# CSV Export
+# ---------------------------------------------------------------------------
+
+@app.post("/export/csv", tags=["Export"])
+def export_csv(body: ExportRequest):
+    """Export a ranked shortlist as a downloadable CSV file."""
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "Rank", "Candidate", "Score (%)",
+        "Professional Experience", "Freelance Experience",
+        "Required Matched", "Required Missing",
+        "Preferred Matched", "Preferred Missing",
+        "Education",
+    ])
+
+    for entry in body.ranked:
+        edu_list = entry.get("education") or []
+        edu_str = "; ".join(
+            e.get("degree", "") + (" in " + e["field"] if e.get("field") else "")
+            for e in edu_list
+        ) if edu_list else "N/A"
+
+        prof_str = entry.get("professional_experience_str") or (
+            f"{entry['experience_years']} yrs" if entry.get("experience_years") is not None else "Not indicated"
+        )
+        free_str = entry.get("freelance_experience_str") or "None"
+
+        writer.writerow([
+            entry.get("rank", ""),
+            entry.get("candidate_name", entry.get("filename", "")),
+            int(round((entry.get("match_score") or 0) * 100)),
+            prof_str,
+            free_str,
+            ", ".join(entry.get("required_matched") or []),
+            ", ".join(entry.get("required_missing") or []),
+            ", ".join(entry.get("preferred_matched") or []),
+            ", ".join(entry.get("preferred_missing") or []),
+            edu_str,
+        ])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=shortlist_export.csv"},
+    )
+

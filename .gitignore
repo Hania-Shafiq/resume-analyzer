@@ -1,7 +1,11 @@
 .venv/
+venv/
 __pycache__/
 *.py[cod]
 *$py.class
 *.sqlite3
 .env
+.env.*
+.pytest_cache/
+*.log
 .ipynb_checkpoints/
