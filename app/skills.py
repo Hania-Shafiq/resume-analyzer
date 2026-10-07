@@ -248,8 +248,8 @@ def extract_education(text: str) -> list[EducationEntry]:
 
 # Patterns that express years of experience in job postings / resume summaries
 _EXP_PATTERNS: list[re.Pattern] = [re.compile(pat, re.IGNORECASE) for pat in [
-    # "5+ years of experience", "5 years experience"
-    r"(\d+)\+?\s*(?:to\s*\d+)?\s*years?\s*(?:of\s*)?(?:professional\s*)?experience",
+    # "5+ years of experience", "5 years experience", "5+ years of software engineering experience"
+    r"(\d+)\+?\s*(?:to\s*\d+)?\s*years?\s*(?:of\s*)?(?:[a-zA-Z\s&/\-]{0,35})?\bexperience\b",
     # "over 3 years", "more than 7 years"
     r"(?:over|more than|at least|nearly)\s*(\d+)\s*years?",
     # "experience of 4+ years"
@@ -423,13 +423,34 @@ def _split_jd_into_sections(text: str) -> dict[str, list[str]]:
     if not found_any_heading:
         reclassified: dict[str, list[str]] = {"required": [], "preferred": [], "other": []}
         for line in sections["other"]:
-            if _PREFERRED_INLINE.search(line):
-                reclassified["preferred"].append(line)
-            elif _REQUIRED_INLINE.search(line):
-                reclassified["required"].append(line)
-            else:
-                # No signal → treat as required (conservative default)
-                reclassified["required"].append(line)
+            # Break down line into clauses/sentences so inline signals don't swallow entire lines
+            segments = re.split(
+                r"(?<=[.!?])\s+|(?=(?:requirements?|required|must[- ]have|preferred|nice[- ]to[- ]have|bonus)\s*[:\-])",
+                line,
+                flags=re.IGNORECASE,
+            )
+            for seg in segments:
+                seg_clean = seg.strip()
+                if not seg_clean:
+                    continue
+                has_pref = bool(_PREFERRED_INLINE.search(seg_clean))
+                has_req = bool(_REQUIRED_INLINE.search(seg_clean))
+                if has_req and not has_pref:
+                    reclassified["required"].append(seg_clean)
+                elif has_pref and not has_req:
+                    reclassified["preferred"].append(seg_clean)
+                elif has_req and has_pref:
+                    # Both signals in same segment: split at the preferred signal
+                    pref_match = _PREFERRED_INLINE.search(seg_clean)
+                    req_part = seg_clean[:pref_match.start()].strip()
+                    pref_part = seg_clean[pref_match.start():].strip()
+                    if req_part:
+                        reclassified["required"].append(req_part)
+                    if pref_part:
+                        reclassified["preferred"].append(pref_part)
+                else:
+                    # No signal → treat as required (conservative default)
+                    reclassified["required"].append(seg_clean)
         return reclassified
 
     return sections

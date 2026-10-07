@@ -141,6 +141,13 @@ async def upload_resume(file: UploadFile = File(...)):
     if not raw_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
+    # Size check
+    if len(raw_bytes) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large ({len(raw_bytes) / (1024*1024):.1f} MB). Maximum is {MAX_FILE_SIZE / (1024*1024):.0f} MB.",
+        )
+
     # Extract raw text using the parser
     try:
         raw_text = extract_text(raw_bytes, filename=file.filename)
@@ -216,8 +223,15 @@ def match_resume_to_jd(body: MatchRequest):
     req_score  = len(req_matched)  / max(len(required),  1)
     pref_score = len(pref_matched) / max(len(preferred), 1)
 
-    # Weighted skill score (required counts more)
-    skill_score = round(0.80 * req_score + 0.20 * pref_score, 4)
+    # Weighted skill score (required counts more; handle missing preferred skills)
+    if required and preferred:
+        skill_score = round(0.80 * req_score + 0.20 * pref_score, 4)
+    elif required:
+        skill_score = round(req_score, 4)
+    elif preferred:
+        skill_score = round(pref_score, 4)
+    else:
+        skill_score = 0.0
 
     return {
         "skill_overlap_score":       skill_score,
@@ -429,7 +443,14 @@ async def bulk_analyze(
 
             req_score = len(req_matched) / max(len(required), 1)
             pref_score = len(pref_matched) / max(len(preferred), 1)
-            match_score = round(0.80 * req_score + 0.20 * pref_score, 4)
+            if required and preferred:
+                match_score = round(0.80 * req_score + 0.20 * pref_score, 4)
+            elif required:
+                match_score = round(req_score, 4)
+            elif preferred:
+                match_score = round(pref_score, 4)
+            else:
+                match_score = 0.0
 
             # Derive candidate name from filename
             candidate_name = Path(file.filename).stem

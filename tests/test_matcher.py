@@ -132,3 +132,50 @@ class TestSemanticSimilarity:
             semantic_similarity(None, "Python developer")
         with pytest.raises(TypeError):
             semantic_similarity("Python developer", 123)
+
+    def test_score_is_always_between_0_and_100(self):
+        """Ensure semantic match score is always bounded in [0, 100]."""
+        jd = "Software Engineer with Python, FastAPI, Docker, and PostgreSQL experience."
+        resume = "Experienced software engineer skilled in Python and FastAPI backend development."
+        score = semantic_similarity(resume, jd)
+        assert 0.0 <= score <= 100.0
+
+    def test_strong_match_greater_than_medium_greater_than_weak(self):
+        """Ensure ordering: strong match > medium match > weak match."""
+        jd = """
+        Required:
+        - Python, FastAPI backend development
+        - Docker containerization
+        - PostgreSQL database design and query tuning
+        """
+        strong_resume = """
+        Senior Python Engineer with 5 years building FastAPI microservices.
+        Experienced in Docker container deployment and PostgreSQL database performance tuning.
+        """
+        medium_resume = """
+        Frontend Developer with basic Python scripting knowledge and React experience.
+        Familiar with SQL queries and web design.
+        """
+        weak_resume = """
+        Professional head chef with expertise in Italian cuisine, bakery management,
+        and inventory tracking for busy restaurants.
+        """
+        score_strong = semantic_similarity(strong_resume, jd)
+        score_medium = semantic_similarity(medium_resume, jd)
+        score_weak = semantic_similarity(weak_resume, jd)
+
+        assert score_strong > score_medium
+        assert score_medium > score_weak
+
+    def test_identical_resume_and_jd_gives_high_score(self):
+        """Ensure identical resume and JD text produces a high similarity score."""
+        text = "Senior Python Developer with FastAPI, PostgreSQL, Docker, and Kubernetes experience."
+        score = semantic_similarity(text, text)
+        assert score >= 0.90
+
+    def test_matcher_score_scale_is_percentage_0_to_100(self):
+        """Specification check: verify score can be retrieved on 0-100 percentage scale with as_percent=True."""
+        text = "Senior Python Developer with FastAPI, PostgreSQL, Docker, and Kubernetes experience."
+        score = semantic_similarity(text, text, as_percent=True)
+        assert 0.0 <= score <= 100.0
+        assert score >= 90.0, f"Expected score on 0-100 scale (>= 90.0), but got {score}"

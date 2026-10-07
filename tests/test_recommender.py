@@ -55,6 +55,16 @@ class TestRecommendRoles:
         assert len(everything) < 1000
         assert sum(r["probability_percent"] for r in everything) == pytest.approx(100.0, abs=0.5)
 
+    def test_probabilities_sum_sensibly(self):
+        """Ensure probabilities sum sensibly (approx 100% when all classes returned)."""
+        all_roles = recommend_roles(DATA_RESUME, top_k=1000)
+        total_prob = sum(r["probability_percent"] for r in all_roles)
+        assert total_prob == pytest.approx(100.0, abs=0.5)
+        # For default top_k=4, sum of top probabilities should be > 0 and <= 100.0
+        top4 = recommend_roles(DATA_RESUME, top_k=4)
+        top4_sum = sum(r["probability_percent"] for r in top4)
+        assert 0.0 < top4_sum <= 100.0
+
     def test_obvious_resume_gets_sensible_top_role(self):
         top = recommend_roles(DATA_RESUME, top_k=1)[0]["role"]
         assert top in {"Data Analyst", "Data Science", "Business Analyst"}

@@ -263,6 +263,33 @@ class TestAnalyzeJDEdgeCases(unittest.TestCase):
         result = analyze_job_description(jd)
         self.assertEqual(result.preferred_skills, [])
 
+    def test_skill_in_both_sections_resolved_to_required(self):
+        """If a skill appears in both Required and Preferred, it must be only in required_skills."""
+        jd = """
+        Software Engineer
+        Requirements:
+        - Python
+        - Docker
+        Preferred:
+        - Python
+        - Kubernetes
+        """
+        result = analyze_job_description(jd)
+        self.assertIn("python", result.required_skills)
+        self.assertNotIn("python", result.preferred_skills)
+        self.assertIn("kubernetes", result.preferred_skills)
+
+    def test_no_headings_no_signals_defaults_to_required(self):
+        """When JD has neither section headings nor inline signals, detected skills default to required."""
+        jd = """
+        Full Stack Developer
+        We use Python, React, and PostgreSQL in our daily workflow.
+        """
+        result = analyze_job_description(jd)
+        self.assertIn("python", result.required_skills)
+        self.assertIn("react", result.required_skills)
+        self.assertEqual(result.preferred_skills, [])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -136,6 +136,7 @@ def semantic_similarity(
     resume_text: str,
     jd_text: str,
     return_details: bool = False,
+    as_percent: bool = False,
 ) -> Union[float, dict[str, Any]]:
     """Compute semantic match score between a resume and a job description.
 
@@ -158,16 +159,18 @@ def semantic_similarity(
     return_details : bool, optional
         If True, returns a dictionary containing detailed sentence breakdown,
         similarity matrix, and best-match alignments. If False (default), returns
-        a single float in [0.0, 1.0].
+        a single float in [0.0, 1.0] (or [0.0, 100.0] if as_percent=True).
+    as_percent : bool, optional
+        If True, returns score on a 0.0 to 100.0 percentage scale. Default False (0.0 to 1.0).
 
     Returns
     -------
     float or dict
         If return_details is False:
-            Float score between 0.0 and 1.0 (rounded to 4 decimal places).
+            Float score between 0.0 and 1.0 (or 0.0 and 100.0 if as_percent=True).
         If return_details is True:
             Dictionary with keys:
-            - 'score': float (0.0 to 1.0)
+            - 'score': float (0.0 to 1.0, or 0.0 to 100.0 if as_percent=True)
             - 'jd_sentences': list[str]
             - 'resume_sentences': list[str]
             - 'similarity_matrix': np.ndarray (shape len(jd) x len(resume))
@@ -202,6 +205,8 @@ def semantic_similarity(
     clipped_scores = np.clip(best_match_scores, 0.0, 1.0)
     mean_score = float(np.mean(clipped_scores))
     final_score = round(max(0.0, min(1.0, mean_score)), 4)
+    if as_percent:
+        final_score = round(final_score * 100.0, 2)
 
     if not return_details:
         return final_score

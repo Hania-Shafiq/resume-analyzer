@@ -239,5 +239,22 @@ class TestExtractExperienceYears(unittest.TestCase):
         self.assertEqual(result, 7)
 
 
+class TestSkillCategory(unittest.TestCase):
+    """Tests for skill_category() lookup."""
+
+    def test_known_skill_categories(self):
+        """Ensure canonical skills resolve to their taxonomical categories."""
+        from app.skills import skill_category
+        self.assertEqual(skill_category("python"), "programming")
+        self.assertEqual(skill_category("postgresql"), "databases")
+        self.assertEqual(skill_category("docker"), "devops_tools")
+        self.assertEqual(skill_category("fastapi"), "web")
+
+    def test_unknown_skill_returns_none(self):
+        """Ensure unknown skills return None."""
+        from app.skills import skill_category
+        self.assertIsNone(skill_category("underwater_basket_weaving"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
