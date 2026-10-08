@@ -20,7 +20,7 @@ try:
 except ImportError:
     import fitz
 
-from app.parser import extract_text
+from app.parser import extract_text, extract_email
 
 
 class TestParserFormats:
@@ -182,3 +182,19 @@ class TestParserCorruptedFiles:
         corrupted_bytes = b"PK\x03\x04corrupted docx zip header not valid archive"
         with pytest.raises(ValueError, match="Failed to parse DOCX document"):
             extract_text(corrupted_bytes, filename="corrupted.docx")
+
+
+class TestExtractEmail:
+    """Tests for email extraction from resume text."""
+
+    def test_standard_email(self):
+        text = "Jane Doe\nEmail: jane.doe@example.com\nPhone: 123-456-7890"
+        assert extract_email(text) == "jane.doe@example.com"
+
+    def test_email_with_punctuation(self):
+        text = "Contact: <candidate_123@subdomain.domain.org>."
+        assert extract_email(text) == "candidate_123@subdomain.domain.org"
+
+    def test_no_email_returns_none(self):
+        text = "Just a resume with no email address listed."
+        assert extract_email(text) is None

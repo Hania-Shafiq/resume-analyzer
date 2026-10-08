@@ -304,6 +304,7 @@ class TestRankAndExportAPI:
             {
                 "rank": 1,
                 "candidate_name": "Top Candidate",
+                "email": "top.candidate@example.com",
                 "match_score": 0.95,
                 "required_matched": ["python", "fastapi"],
                 "required_missing": [],
@@ -318,7 +319,28 @@ class TestRankAndExportAPI:
         assert response.headers["content-type"].startswith("text/csv")
         csv_text = response.text
         assert "Top Candidate" in csv_text
+        assert "top.candidate@example.com" in csv_text
+        assert "Email" in csv_text
         assert "95" in csv_text
         assert "Professional Experience" in csv_text
         assert "Freelance Experience" in csv_text
         assert "python, fastapi" in csv_text
+
+    def test_bulk_analyze_extracts_candidate_email(self):
+        content = "Jane Doe\nEmail: jane.doe@techcorp.io\nSkills: Python, FastAPI\n3 years experience"
+        files = [
+            ("files", ("jane.txt", make_txt_bytes(content), "text/plain")),
+        ]
+        response = client.post(
+            "/resume/bulk-analyze",
+            files=files,
+            data={"job_description": "Requirements: Python, FastAPI"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["results"][0]["email"] == "jane.doe@techcorp.io"
+
+        rank_res = client.post("/rank", json={"results": data["results"], "top_n": 1})
+        assert rank_res.status_code == 200
+        ranked_data = rank_res.json()
+        assert ranked_data["ranked"][0]["email"] == "jane.doe@techcorp.io"

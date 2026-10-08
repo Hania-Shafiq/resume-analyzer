@@ -25,7 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.parser import extract_text
+from app.parser import extract_text, extract_email
 from app.preprocess import light_clean
 from app.ranker import rank_candidates
 from app.recommender import load_model, recommend_roles
@@ -161,9 +161,11 @@ async def upload_resume(file: UploadFile = File(...)):
     skills      = extract_skills(cleaned)
     education   = extract_education(cleaned)
     experience  = extract_experience_years(cleaned)
+    email       = extract_email(raw_text) or extract_email(cleaned)
 
     return {
         "filename":         file.filename,
+        "email":            email,
         "char_count":       len(cleaned),
         "skills":           skills,
         "education":        [{"degree": e.degree, "field": e.field} for e in education],
@@ -460,9 +462,12 @@ async def bulk_analyze(
             if name_clean:
                 candidate_name = name_clean.replace("_", " ").replace("-", " ").title()
 
+            email = extract_email(raw_text) or extract_email(cleaned)
+
             entry.update({
                 "status": "analyzed",
                 "candidate_name": candidate_name,
+                "email": email,
                 "content_hash": content_hash,
                 "skills": skills,
                 "experience_years": experience,
@@ -524,7 +529,7 @@ def export_csv(body: ExportRequest):
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
-        "Rank", "Candidate", "Score (%)",
+        "Rank", "Candidate", "Email", "Score (%)",
         "Professional Experience", "Freelance Experience",
         "Required Matched", "Required Missing",
         "Preferred Matched", "Preferred Missing",
@@ -546,6 +551,7 @@ def export_csv(body: ExportRequest):
         writer.writerow([
             entry.get("rank", ""),
             entry.get("candidate_name", entry.get("filename", "")),
+            entry.get("email") or "Not indicated",
             int(round((entry.get("match_score") or 0) * 100)),
             prof_str,
             free_str,

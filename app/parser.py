@@ -150,3 +150,45 @@ def extract_text(file_path_or_bytes: Union[str, Path, bytes, bytearray, BinaryIO
         raise ValueError("The document contains no extractable text.")
 
     return result_text
+
+
+_EMAIL_PATTERN = re.compile(
+    r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
+)
+
+
+def extract_email(text: str) -> str | None:
+    """Extract primary contact email address from resume text.
+
+    Parameters
+    ----------
+    text : str
+        Cleaned or raw resume text.
+
+    Returns
+    -------
+    str | None
+        Normalized lowercase email address, or None if none found.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return None
+
+    # First attempt: direct search with standard email pattern
+    matches = _EMAIL_PATTERN.findall(text)
+    if matches:
+        for m in matches:
+            cleaned = m.strip(".,;:()[]{}<>\"' ")
+            if re.match(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", cleaned):
+                return cleaned.lower()
+
+    # Second attempt: handle spaced @ signs from OCR/PDF extraction (e.g. "name @ domain.com")
+    loose_matches = re.findall(
+        r"\b([A-Za-z0-9._%+-]+)\s*@\s*([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b",
+        text,
+    )
+    if loose_matches:
+        candidate = f"{loose_matches[0][0]}@{loose_matches[0][1]}".lower()
+        if re.match(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", candidate):
+            return candidate
+
+    return None

@@ -625,7 +625,7 @@ elif page == "Upload Resume":
                     st.success(f"Parsed {uploaded.name} — {data['char_count']:,} characters processed.")
 
                     # Summary cards
-                    m1, m2, m3 = st.columns(3)
+                    m1, m2, m3, m4 = st.columns(4)
                     with m1:
                         H(f"""
                         <article class="bento-card fade-up-1">
@@ -658,6 +658,24 @@ elif page == "Upload Resume":
                         {deg}
                         </div>
                         <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 4px;">Academic baseline</div>
+                        </article>
+                        """)
+                    with m4:
+                        single_email = data.get("email")
+                        if single_email:
+                            import urllib.parse
+                            _s = urllib.parse.quote("Interview Opportunity / Job Application")
+                            _m_url = f"mailto:{single_email}?subject={_s}"
+                            email_box = f'<a href="{_m_url}" target="_blank" style="color: var(--accent-emerald); text-decoration: none; word-break: break-all; font-weight: 500;">✉️ {single_email}</a>'
+                        else:
+                            email_box = '<span style="color: var(--text-tertiary);">Not detected</span>'
+                        H(f"""
+                        <article class="bento-card fade-up-4">
+                        <span class="section-label">CONTACT EMAIL</span>
+                        <div style="font-size: 0.95rem; font-weight: 600; margin-top: 6px; line-height: 1.4;">
+                        {email_box}
+                        </div>
+                        <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 4px;">Direct mailto link</div>
                         </article>
                         """)
 
@@ -1231,6 +1249,7 @@ elif page == "Bulk Upload & Rank":
                         req_m = cand.get("required_matched", [])
                         req_gap = cand.get("required_missing", [])
                         reason = cand.get("rank_reason", "")
+                        email_addr = cand.get("email")
 
                         score_badge_cls = "strong" if pct >= 70 else ("partial" if pct >= 40 else "weak")
 
@@ -1243,10 +1262,54 @@ elif page == "Bulk Upload & Rank":
                         intern_sub = f" <span style='font-size: 0.72rem; color: var(--text-tertiary);'>(incl. internship)</span>" if cand.get("internship_note") else ""
                         comb_sub = f" <span style='font-size: 0.72rem; color: var(--text-tertiary);'>(Total: {cand.get('combined_experience_str')})</span>" if cand.get("combined_experience_str") else ""
 
+                        if email_addr:
+                            import urllib.parse
+                            subj = urllib.parse.quote("Interview Opportunity / Application Follow-up")
+                            bdy = urllib.parse.quote(
+                                f"Dear {c_name},\n\nWe reviewed your application ({cand.get('filename', '')}) and would like to invite you for an interview.\n\nPlease let us know your availability for a call.\n\nBest regards,\nRecruitment Team"
+                            )
+                            mailto_url = f"mailto:{email_addr}?subject={subj}&body={bdy}"
+                            email_html = f"""
+                            <a href="{mailto_url}" target="_blank" style="
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 6px;
+                                background: rgba(16, 185, 129, 0.12);
+                                color: #34D399;
+                                border: 1px solid rgba(16, 185, 129, 0.35);
+                                padding: 3px 10px;
+                                border-radius: 6px;
+                                text-decoration: none;
+                                font-size: 0.78rem;
+                                font-weight: 500;
+                            ">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                                <span>{email_addr}</span>
+                                <span style="font-size: 0.72rem; color: #A7F3D0; font-weight: 600; margin-left: 4px; padding-left: 6px; border-left: 1px solid rgba(16, 185, 129, 0.35);">✉️ Email Candidate</span>
+                            </a>
+                            """
+                        else:
+                            email_html = f"""
+                            <span style="
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 5px;
+                                color: var(--text-tertiary);
+                                font-size: 0.76rem;
+                                background: rgba(255, 255, 255, 0.03);
+                                border: 1px solid rgba(255, 255, 255, 0.06);
+                                padding: 3px 8px;
+                                border-radius: 6px;
+                            ">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                                No email in resume
+                            </span>
+                            """
+
                         H(f"""
                         <article class="bento-card fade-up-1" style="margin-bottom: 1rem; border-left: 4px solid var(--accent-emerald);">
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
-                        <div style="display: flex; align-items: center; gap: 14px;">
+                        <div style="display: flex; align-items: flex-start; gap: 14px;">
                         <div style="
                             font-family: 'JetBrains Mono', monospace;
                             font-size: 1.6rem;
@@ -1256,14 +1319,18 @@ elif page == "Bulk Upload & Rank":
                             padding: 6px 14px;
                             border-radius: 8px;
                             border: 1px solid rgba(16, 185, 129, 0.25);
+                            line-height: 1.2;
                         ">
                         #{rank_num}
                         </div>
                         <div>
+                        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                         <h3 style="font-size: 1.15rem; font-weight: 600; color: var(--text-primary); margin: 0;">
                         {c_name}
                         </h3>
-                        <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 3px;">
+                        {email_html}
+                        </div>
+                        <div style="font-size: 0.8rem; color: var(--text-tertiary); margin-top: 5px;">
                         File: {cand.get('filename', '')} &bull; Professional Experience: <strong style="color: var(--text-secondary);">{prof_val}</strong>{intern_sub} &bull; Freelance Experience: <strong style="color: var(--text-secondary);">{free_val}</strong>{comb_sub}
                         </div>
                         </div>

@@ -93,6 +93,7 @@ def rank_candidates(results: list[dict], top_n: int | None = None) -> dict:
             "rank": i,
             "filename": entry.get("filename", ""),
             "candidate_name": entry.get("candidate_name", ""),
+            "email": entry.get("email"),
             "match_score": entry.get("match_score", 0),
             "required_matched": req_matched,
             "required_missing": req_missing,
