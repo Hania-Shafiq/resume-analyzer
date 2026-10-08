@@ -248,14 +248,15 @@ def extract_education(text: str) -> list[EducationEntry]:
 
 # Patterns that express years of experience in job postings / resume summaries
 _EXP_PATTERNS: list[re.Pattern] = [re.compile(pat, re.IGNORECASE) for pat in [
+    # Range: "0-2 years", "3-5 years", "0 to 2 years", "0–2 years" -> capture lower bound (group 1)
+    r"(\d+)\s*(?:[-–]|to)\s*\d+\s*years?",
     # "5+ years of experience", "5 years experience", "5+ years of software engineering experience"
-    r"(\d+)\+?\s*(?:to\s*\d+)?\s*years?\s*(?:of\s*)?(?:[a-zA-Z\s&/\-]{0,35})?\bexperience\b",
-    # "over 3 years", "more than 7 years"
+    # Negative lookbehind (?<![-–\d]) ensures we don't grab the upper bound of a range (e.g. '2' from '0-2')
+    r"(?<![-–\d])(\d+)\+?\s*years?\s*(?:of\s*)?(?:[a-zA-Z\s&/\-]{0,35})?\bexperience\b",
+    # "over 3 years", "more than 7 years", "at least 3 years"
     r"(?:over|more than|at least|nearly)\s*(\d+)\s*years?",
     # "experience of 4+ years"
     r"experience\s*(?:of\s*)?(\d+)\+?\s*years?",
-    # Range: "3-5 years"
-    r"(\d+)\s*[-–]\s*(\d+)\s*years?",
 ]]
 
 
@@ -300,53 +301,66 @@ def extract_experience_years(text: str) -> int | None:
 # Job Description Analysis
 # ===========================================================================
 
+def _clean_for_heading(line: str) -> str:
+    """Strip markdown formatting, bullets, colons, and hyphens to normalize heading candidates."""
+    h = re.sub(r"^[\s#*_\-]+", "", line)
+    h = re.sub(r"[\s*_\-:]+$", "", h)
+    return h.strip()
+
+
 # ---------------------------------------------------------------------------
 # Section-heading regexes
-# "Required", "Requirements", "Must have", "You must", "Qualifications"
+# "Required", "Requirements", "Mandatory Skills", "Must have", "Qualifications"
 # → everything in this block is a hard requirement.
 # ---------------------------------------------------------------------------
 _REQUIRED_HEADING = re.compile(
-    r"^\s*(?:"
-    r"requirements?|required(?: skills?| qualifications?)?|"
-    r"must[- ]have|must[- ]haves?|"
-    r"you (must|will|should)|"
+    r"^(?:"
+    r"requirements?|"
+    r"required(?: skills?| qualifications?| experience)?|"
+    r"mandatory(?: skills?| qualifications?| experience)?|"
+    r"must[- ]have[s]?(?: skills?)?|"
+    r"you (?:must|will|should)|"
     r"minimum qualifications?|"
-    r"essential skills?|"
+    r"essential(?: skills?)?|"
+    r"core skills?|key skills?|technical skills?|"
     r"what you(?:'ll)? need|"
     r"what we(?:'re)? looking for"
-    r")\s*[:\-]?\s*$",
-    re.IGNORECASE | re.MULTILINE,
+    r")$",
+    re.IGNORECASE,
 )
 
 # "Preferred", "Nice to have", "Bonus", "Plus", "Good to have", "Desirable"
 # → everything in this block is optional / preferred.
 _PREFERRED_HEADING = re.compile(
-    r"^\s*(?:"
-    r"preferred(?: skills?| qualifications?)?|"
-    r"nice[- ]to[- ]have[s]?|"
+    r"^(?:"
+    r"preferred(?: skills?| qualifications?| competencies)?|"
+    r"nice[- ]to[- ]have[s]?(?: skills?)?|"
     r"bonus(?: points?| skills?)?|"
     r"plus(?:es)?|"
-    r"good[- ]to[- ]have|"
+    r"good[- ]to[- ]have(?: skills?)?|"
     r"desirable(?: skills?)?|"
     r"advantageous|"
-    r"optional(?: skills?)?"
-    r")\s*[:\-]?\s*$",
-    re.IGNORECASE | re.MULTILINE,
+    r"optional(?: skills?)?|"
+    r"additional skills?"
+    r")$",
+    re.IGNORECASE,
 )
 
 # Any heading that starts a new top-level section (used to detect section end)
 _ANY_SECTION_HEADING = re.compile(
-    r"^\s*(?:"
-    r"about(?: the)?(?: role| job| company| us|position)?|"
-    r"responsibilities|duties|role overview|"
-    r"requirements?|required|must[- ]have|minimum qualifications?|"
+    r"^(?:"
+    r"about(?: the)?(?: role| job| company| us| position)?|"
+    r"responsibilities|duties|role overview|job description|overview|"
+    r"requirements?|required|mandatory|must[- ]have|minimum qualifications?|"
     r"preferred|nice[- ]to[- ]have|bonus|"
+    r"education|preferred education|qualifications|"
+    r"experience|work experience|"
     r"benefits?|compensation|salary|"
     r"how to apply|application process|"
-    r"what you(?:'ll)? (do|bring|need)|"
+    r"what you(?:'ll)? (?:do|bring|need)|"
     r"what we(?: offer| expect)?|"
     r"who you are|about you"
-    r")\s*[:\-]?\s*$",
+    r")$",
     re.IGNORECASE,
 )
 
@@ -404,16 +418,18 @@ def _split_jd_into_sections(text: str) -> dict[str, list[str]]:
         if not stripped:
             continue
 
-        if _REQUIRED_HEADING.match(stripped):
+        heading_cand = _clean_for_heading(stripped)
+
+        if _REQUIRED_HEADING.match(heading_cand):
             current = "required"
             found_any_heading = True
             continue  # heading line itself is not content
-        if _PREFERRED_HEADING.match(stripped):
+        if _PREFERRED_HEADING.match(heading_cand):
             current = "preferred"
             found_any_heading = True
             continue
         # Any other top-level section resets to "other"
-        if _ANY_SECTION_HEADING.match(stripped) and current in ("required", "preferred"):
+        if _ANY_SECTION_HEADING.match(heading_cand) and current in ("required", "preferred"):
             current = "other"
             continue
 
@@ -602,15 +618,31 @@ def analyze_job_description(jd_text: str) -> JDAnalysis:
     other_text     = "\n".join(sections["other"])
 
     # ── Step 2: Extract skills per section ──────────────────────────────────
-    # We merge "other" into required (safe default: unknown section = required)
-    combined_required = (required_text + "\n" + other_text).strip()
+    if required_text:
+        required_skills = extract_skills(required_text)
+    elif other_text:
+        # Fallback if no explicit required section exists: unknown section = required
+        required_skills = extract_skills(other_text)
+    else:
+        required_skills = []
 
-    required_skills  = extract_skills(combined_required) if combined_required else []
-    preferred_skills = extract_skills(preferred_text)    if preferred_text    else []
+    preferred_skills = extract_skills(preferred_text) if preferred_text else []
 
-    # A skill found in *both* sections is truly required — remove from preferred
-    required_set = set(required_skills)
-    preferred_skills = [s for s in preferred_skills if s not in required_set]
+    # If both required and other exist, capture additional skills from "other"
+    # (e.g. Responsibilities), but NEVER pull skills that were explicitly marked as preferred!
+    if required_text and other_text:
+        other_skills = extract_skills(other_text)
+        pref_set = set(preferred_skills)
+        req_set = set(required_skills)
+        for s in other_skills:
+            if s not in pref_set and s not in req_set:
+                required_skills.append(s)
+                req_set.add(s)
+
+    # A skill explicitly found in the required section is truly required — remove from preferred
+    req_set = set(required_skills)
+    explicit_req_skills = set(extract_skills(required_text)) if required_text else req_set
+    preferred_skills = [s for s in preferred_skills if s not in explicit_req_skills]
 
     # ── Step 3: Experience + Education from full JD ──────────────────────────
     min_exp  = extract_experience_years(jd_text)

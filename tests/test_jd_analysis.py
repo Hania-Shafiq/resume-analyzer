@@ -290,6 +290,38 @@ class TestAnalyzeJDEdgeCases(unittest.TestCase):
         self.assertIn("react", result.required_skills)
         self.assertEqual(result.preferred_skills, [])
 
+    def test_markdown_headings_and_range_experience(self):
+        """Markdown formatted headings (**Mandatory Skills:**, **Preferred Skills:**)
+        must be properly parsed and experience ranges must retain the lower bound."""
+        jd = """
+        ### Data Analyst
+
+        **Job Description:**
+        We are looking for a Data Analyst to analyze data.
+
+        **Mandatory Skills:**
+        - SQL and database querying
+        - Power BI or similar BI tools
+        - Basic Python for data analysis
+
+        **Experience:**
+        - 0–2 years of experience in Data Analytics or a related role.
+
+        **Preferred Skills:**
+        - Experience with PostgreSQL/MySQL
+        - Python libraries such as Pandas and NumPy
+        """
+        result = analyze_job_description(jd)
+        self.assertIn("sql", result.required_skills)
+        self.assertIn("power bi", result.required_skills)
+        self.assertIn("python", result.required_skills)
+        self.assertIn("postgresql", result.preferred_skills)
+        self.assertIn("mysql", result.preferred_skills)
+        self.assertIn("pandas", result.preferred_skills)
+        self.assertIn("numpy", result.preferred_skills)
+        self.assertNotIn("postgresql", result.required_skills)
+        self.assertEqual(result.min_experience_years, 0)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
