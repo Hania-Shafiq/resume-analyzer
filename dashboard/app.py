@@ -2,6 +2,7 @@
 
 import hashlib
 import html as _html
+import os
 from pathlib import Path
 import re
 import requests
@@ -28,9 +29,29 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
-# Constants
+# Backend API Resolution (Supports Streamlit Secrets, Environment Vars & Sidebar Input)
 # ---------------------------------------------------------------------------
-API_BASE = "http://127.0.0.1:8000"
+def _resolve_api_base() -> str:
+    # 1. Runtime override in session state
+    if st.session_state.get("custom_api_base"):
+        return st.session_state["custom_api_base"].strip().rstrip("/")
+    # 2. Streamlit Cloud Secrets (st.secrets["API_BASE"] or st.secrets["BACKEND_URL"])
+    try:
+        if hasattr(st, "secrets"):
+            if "API_BASE" in st.secrets:
+                return str(st.secrets["API_BASE"]).strip().rstrip("/")
+            if "BACKEND_URL" in st.secrets:
+                return str(st.secrets["BACKEND_URL"]).strip().rstrip("/")
+    except Exception:
+        pass
+    # 3. Environment variable (e.g. from Docker or host)
+    env_url = os.getenv("API_BASE") or os.getenv("BACKEND_URL")
+    if env_url:
+        return env_url.strip().rstrip("/")
+    # 4. Local development fallback
+    return "http://127.0.0.1:8000"
+
+API_BASE = _resolve_api_base()
 
 # ---------------------------------------------------------------------------
 # Inject CSS stylesheet
@@ -73,7 +94,7 @@ def _tags(skills: list[str], kind: str = "matched") -> str:
 def _api_ok() -> bool:
     """Return True if the FastAPI backend is reachable."""
     try:
-        r = requests.get(f"{API_BASE}/", timeout=2)
+        r = requests.get(f"{API_BASE}/", timeout=8)
         return r.status_code == 200
     except Exception:
         return False
@@ -441,6 +462,20 @@ with st.sidebar:
     </div>
     """)
 
+    with st.expander("⚙️ Backend API Config", expanded=(not alive)):
+        st.caption("Paste your deployed Render backend URL:")
+        custom_url_input = st.text_input(
+            "Backend URL",
+            value=st.session_state.get("custom_api_base", API_BASE),
+            placeholder="https://your-api.onrender.com",
+            label_visibility="collapsed",
+            key="custom_api_url_input",
+        )
+        if st.button("🔗 Connect Backend", use_container_width=True, key="save_api_url_btn"):
+            if custom_url_input.strip():
+                st.session_state["custom_api_base"] = custom_url_input.strip().rstrip("/")
+                st.rerun()
+
     H("""
     <div class="sidebar-footer">Build 0.1.0 · Phase 1</div>
     """)
@@ -585,7 +620,7 @@ Get specific skills and topics to close each gap.
 
     if not alive:
         st.warning(
-            "Backend server is offline at http://127.0.0.1:8000. Start it with `uvicorn app.main:app --reload` to enable analysis."
+            f"Backend server is offline at {API_BASE}. If using Render, please paste your backend URL in the sidebar under '⚙️ Backend API Config'."
         )
 
     _render_footer()
@@ -698,7 +733,7 @@ elif page == "Upload Resume":
                     err_msg = resp.json().get("detail", resp.text) if resp.headers.get("content-type") == "application/json" else resp.text
                     st.error(f"Upload failed ({resp.status_code}): {err_msg}")
             except requests.ConnectionError:
-                st.error("Cannot connect to backend service. Please confirm uvicorn is running on http://127.0.0.1:8000.")
+                st.error(f"Cannot connect to backend service at {API_BASE}. If deployed on Render, please make sure the service is running and configure the URL in the sidebar.")
 
     _render_footer()
 
@@ -1085,7 +1120,7 @@ elif page == "Bulk Upload & Rank":
 
                 except requests.ConnectionError:
                     status.update(label="API connection failed", state="error")
-                    st.error("Cannot connect to backend service at http://127.0.0.1:8000.")
+                    st.error(f"Cannot connect to backend service at {API_BASE}. Please verify your Render service URL in the sidebar.")
                 except Exception as exc:
                     status.update(label=f"Unexpected error: {exc}", state="error")
                     st.error(f"Error during batch screening: {exc}")
