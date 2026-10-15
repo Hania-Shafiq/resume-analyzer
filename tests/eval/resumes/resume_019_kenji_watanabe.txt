@@ -1,0 +1,20 @@
+Kenji Watanabe
+Full-Stack Engineer
+
+PROFESSIONAL SUMMARY
+Full-stack engineer with 4 years of experience in modern web technologies. Strong in both frontend and backend development.
+
+Over 4 years of professional experience.
+
+TECHNICAL SKILLS
+React, TypeScript, Node.js, Python, MongoDB, Redis, Docker, Kubernetes
+
+WORK EXPERIENCE
+Full-Stack Engineer | AppWorks | 2022-Present
+Built React/TypeScript frontends and Python/Node.js backends. Deployed with Docker and Kubernetes.
+
+Junior Developer | WebCo | 2020-2022
+Developed MongoDB-backed APIs with Redis caching.
+
+EDUCATION
+Bachelor of Science in Computer Science

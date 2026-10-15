@@ -1,0 +1,17 @@
+Grace Okonkwo
+Graduate Developer
+
+PROFESSIONAL SUMMARY
+Fresh graduate developer with strong academic background in computer science. Completed internship projects in Python web development.
+
+
+
+TECHNICAL SKILLS
+Python, Django, PostgreSQL, Docker
+
+WORK EXPERIENCE
+Intern Developer | TechInterns | 2023-2023
+Built a Django web application with PostgreSQL as a capstone project. Used Docker for deployment.
+
+EDUCATION
+Bachelor of Science in Computer Science

@@ -12,7 +12,7 @@ except ImportError:
     import fitz
 
 from app.main import app
-from app.parser import extract_text
+from app.parser import extract_text, infer_candidate_name
 from app.ranker import rank_candidates
 
 
@@ -344,3 +344,30 @@ class TestRankAndExportAPI:
         assert rank_res.status_code == 200
         ranked_data = rank_res.json()
         assert ranked_data["ranked"][0]["email"] == "jane.doe@techcorp.io"
+
+
+class TestCandidateNameInference:
+    """Test candidate name inference from filenames in bulk upload."""
+
+    def test_infer_candidate_name_cases(self):
+        assert infer_candidate_name("alice_resume.txt") == "Alice"
+        assert infer_candidate_name("resume_017_alex_murphy.txt") == "Alex Murphy"
+        assert infer_candidate_name("Bob-Jones-CV.pdf") == "Bob Jones"
+
+    def test_bulk_analyze_name_inference(self):
+        files = [
+            ("files", ("alice_resume.txt", make_txt_bytes("Alice content Python developer"), "text/plain")),
+            ("files", ("resume_017_alex_murphy.txt", make_txt_bytes("Alex Murphy content Python developer"), "text/plain")),
+            ("files", ("Bob-Jones-CV.pdf", make_pdf_bytes("Bob Jones content Python developer"), "application/pdf")),
+        ]
+        response = client.post(
+            "/resume/bulk-analyze",
+            files=files,
+            data={"job_description": "Requirements: Python"},
+        )
+        assert response.status_code == 200
+        results = {r["filename"]: r["candidate_name"] for r in response.json()["results"]}
+        assert results["alice_resume.txt"] == "Alice"
+        assert results["resume_017_alex_murphy.txt"] == "Alex Murphy"
+        assert results["Bob-Jones-CV.pdf"] == "Bob Jones"
+

@@ -1,0 +1,20 @@
+Sofia Costa
+NLP Engineer
+
+PROFESSIONAL SUMMARY
+NLP engineer with 7 years of experience in natural language processing and deep learning. Published researcher in computational linguistics.
+
+Over 7 years of professional experience.
+
+TECHNICAL SKILLS
+Python, Machine Learning, PyTorch, TensorFlow, AWS, Docker, FastAPI
+
+WORK EXPERIENCE
+NLP Engineer | LanguageAI | 2021-Present
+Built PyTorch NLP models served via FastAPI on AWS. Deployed with Docker containers.
+
+Research Scientist | NLP Lab | 2017-2021
+Conducted NLP research using TensorFlow and PyTorch. Published in ACL and NAACL.
+
+EDUCATION
+PhD in Computational Linguistics

@@ -1,0 +1,20 @@
+Alex Murphy
+Senior Backend Engineer
+
+PROFESSIONAL SUMMARY
+Senior backend engineer with 8 years of experience in cloud-native applications. Expert in Python, containerization, and orchestration.
+
+Over 8 years of professional experience.
+
+TECHNICAL SKILLS
+Python, FastAPI, Docker, Kubernetes, PostgreSQL, AWS, Git, CI/CD, Redis
+
+WORK EXPERIENCE
+Senior Backend Engineer | CloudApp Inc. | 2020-Present
+Architected FastAPI services deployed on Kubernetes/AWS. Managed PostgreSQL and Redis.
+
+Backend Engineer | ServerSide Ltd. | 2016-2020
+Built Python APIs, implemented CI/CD with Docker and Git.
+
+EDUCATION
+Bachelor of Science in Computer Science

@@ -25,7 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.parser import extract_text, extract_email
+from app.parser import extract_text, extract_email, infer_candidate_name
 from app.preprocess import light_clean
 from app.ranker import rank_candidates
 from app.recommender import load_model, recommend_roles
@@ -202,11 +202,17 @@ def analyze_jd(body: JDRequest):
 def match_resume_to_jd(body: MatchRequest):
     """Score a resume against a job description.
 
-    Scoring formula (Phase 3 full implementation pending):
-      0.40 × skill_overlap  +  0.40 × semantic_similarity
-      + 0.10 × experience_fit  +  0.10 × education_fit
+    Scoring formula:
+      - If both required and preferred skills are present:
+          0.80 × (matched_required / total_required) + 0.20 × (matched_preferred / total_preferred)
+      - If only required skills are present:
+          1.00 × (matched_required / total_required)
+      - If only preferred skills are present:
+          1.00 × (matched_preferred / total_preferred)
+      - If no skills are detected:
+          0.0
 
-    Currently returns skill-overlap score only (Phase 1).
+    Semantic similarity, experience, and education do not affect the score.
     """
     if not body.resume_text.strip():
         raise HTTPException(status_code=400, detail="resume_text must not be empty.")
@@ -243,7 +249,7 @@ def match_resume_to_jd(body: MatchRequest):
         "preferred_missing":         sorted(preferred - resume_skills),
         "total_required":            len(required),
         "total_preferred":           len(preferred),
-        "note": "Full semantic + experience + education scoring coming in Phase 3.",
+        "note": "Semantic, experience and education scoring planned for a future release.",
     }
 
 
@@ -298,7 +304,7 @@ def recommendations(resume_text: str, job_description: str = ""):
     return {
         "recommended_to_learn":   gap_required[:10],
         "nice_to_add":            gap_preferred[:5],
-        "note": "Course-link integration planned for Phase 4.",
+        "note": "Course-link integration planned for a future release.",
     }
 
 
@@ -455,12 +461,7 @@ async def bulk_analyze(
                 match_score = 0.0
 
             # Derive candidate name from filename
-            candidate_name = Path(file.filename).stem
-            # Strip common prefixes like 'resume_001_'
-            import re as _re
-            name_clean = _re.sub(r"^resume_?\d*_?", "", candidate_name, flags=_re.IGNORECASE)
-            if name_clean:
-                candidate_name = name_clean.replace("_", " ").replace("-", " ").title()
+            candidate_name = infer_candidate_name(file.filename or "")
 
             email = extract_email(raw_text) or extract_email(cleaned)
 

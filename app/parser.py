@@ -192,3 +192,18 @@ def extract_email(text: str) -> str | None:
             return candidate
 
     return None
+
+
+def infer_candidate_name(filename: str) -> str:
+    """Infer candidate name from resume filename.
+
+    Removes the words 'resume' and 'cv' (anywhere, case-insensitive),
+    replaces underscores, hyphens, and digits-only tokens with spaces,
+    collapses multiple spaces, and title-cases the result.
+    """
+    stem = Path(filename or "").stem
+    name = stem.replace("_", " ").replace("-", " ")
+    name = re.sub(r"\b(resume|cv)\b", " ", name, flags=re.IGNORECASE)
+    name = re.sub(r"\b\d+\b", " ", name)
+    name = re.sub(r"\s+", " ", name).strip()
+    return name.title() if name else stem
