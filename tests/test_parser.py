@@ -198,3 +198,63 @@ class TestExtractEmail:
     def test_no_email_returns_none(self):
         text = "Just a resume with no email address listed."
         assert extract_email(text) is None
+
+
+class TestTwoColumnPdfReadingOrder:
+    """Tests for PDF two-column layout detection and reading order."""
+
+    def test_single_column_pdf_reading_order(self):
+        """Single-column PDF maintains standard top-to-bottom reading order."""
+        doc = fitz.open()
+        page = doc.new_page(width=600, height=800)
+        page.insert_textbox(fitz.Rect(50, 40, 550, 80), "Header Title: Jane Doe")
+        page.insert_textbox(fitz.Rect(50, 100, 550, 200), "Single Column Section 1: Summary")
+        page.insert_textbox(fitz.Rect(50, 250, 550, 350), "Single Column Section 2: Experience")
+        page.insert_textbox(fitz.Rect(50, 400, 550, 500), "Single Column Section 3: Education")
+        pdf_bytes = doc.write()
+        doc.close()
+
+        extracted = extract_text(pdf_bytes, filename="single_col.pdf")
+        lines = [line.strip() for line in extracted.splitlines() if line.strip()]
+
+        assert lines == [
+            "Header Title: Jane Doe",
+            "Single Column Section 1: Summary",
+            "Single Column Section 2: Experience",
+            "Single Column Section 3: Education",
+        ]
+
+    def test_two_column_pdf_reads_left_column_completely_before_right(self):
+        """Two-column PDF reads left column completely before right column."""
+        doc = fitz.open()
+        page = doc.new_page(width=600, height=800)
+
+        # Spanning top header
+        page.insert_textbox(fitz.Rect(50, 40, 550, 80), "Header: Alex Smith")
+
+        # Interleaved column blocks: Left 1, Right 1, Left 2, Right 2
+        page.insert_textbox(fitz.Rect(50, 100, 250, 250), "Left Col 1: Education\nBS in Computer Science")
+        page.insert_textbox(fitz.Rect(350, 100, 550, 250), "Right Col 1: Experience\nSenior Software Engineer")
+        page.insert_textbox(fitz.Rect(50, 300, 250, 500), "Left Col 2: Skills\nPython, Docker, FastAPI")
+        page.insert_textbox(fitz.Rect(350, 300, 550, 500), "Right Col 2: Projects\nResume Analyzer Platform")
+
+        pdf_bytes = doc.write()
+        doc.close()
+
+        extracted = extract_text(pdf_bytes, filename="two_col.pdf")
+
+        pos_header = extracted.find("Header: Alex Smith")
+        pos_left1 = extracted.find("Left Col 1: Education")
+        pos_left2 = extracted.find("Left Col 2: Skills")
+        pos_right1 = extracted.find("Right Col 1: Experience")
+        pos_right2 = extracted.find("Right Col 2: Projects")
+
+        assert pos_header != -1
+        assert pos_left1 != -1
+        assert pos_left2 != -1
+        assert pos_right1 != -1
+        assert pos_right2 != -1
+
+        # Assert left column is read completely before right column
+        assert pos_header < pos_left1 < pos_left2 < pos_right1 < pos_right2
+

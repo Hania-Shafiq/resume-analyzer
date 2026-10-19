@@ -13,6 +13,101 @@ except ImportError:
 import docx
 
 
+def _extract_page_text_blocks(page) -> str:
+    """Extract text from a PDF page respecting column layout.
+
+    Detects a two-column layout when text block x-positions form two clear groups.
+    If detected, reads the left column completely before the right column (with any
+    spanning header blocks read first and footer blocks read last).
+    Otherwise, preserves the standard top-to-bottom reading order.
+    """
+    raw_blocks = page.get_text("blocks")
+    # Filter text blocks (block_type == 0) with non-empty text
+    text_blocks = [b for b in raw_blocks if b[6] == 0 and b[4].strip()]
+    if len(text_blocks) < 2:
+        return page.get_text("text")
+
+    page_width = page.rect.width
+    page_height = page.rect.height
+
+    header_blocks = []
+    footer_blocks = []
+    cand_blocks = []
+
+    for b in text_blocks:
+        width = b[2] - b[0]
+        is_spanning = width > 0.55 * page_width or (b[0] < 0.25 * page_width and b[2] > 0.75 * page_width)
+        if is_spanning and b[1] < 0.25 * page_height:
+            header_blocks.append(b)
+        elif is_spanning and b[3] > 0.85 * page_height:
+            footer_blocks.append(b)
+        else:
+            cand_blocks.append(b)
+
+    if len(cand_blocks) < 2:
+        return page.get_text("text")
+
+    # Generate candidate vertical split points across the middle of the page
+    cand_splits = [
+        0.50 * page_width,
+        0.33 * page_width,
+        0.40 * page_width,
+        0.60 * page_width,
+        0.67 * page_width,
+    ]
+    for b1 in cand_blocks:
+        for b2 in cand_blocks:
+            if b1[2] < b2[0]:
+                mid = (b1[2] + b2[0]) / 2
+                if 0.20 * page_width <= mid <= 0.80 * page_width:
+                    cand_splits.append(mid)
+
+    best_split = None
+    best_left, best_right = [], []
+    max_sep = -1
+
+    for split_x in set(cand_splits):
+        left = [b for b in cand_blocks if b[2] <= split_x + 5 or (b[0] + b[2]) / 2 < split_x]
+        right = [b for b in cand_blocks if b[0] >= split_x - 5 or (b[0] + b[2]) / 2 >= split_x]
+        crossing = [b for b in cand_blocks if b[0] < split_x - 10 and b[2] > split_x + 10]
+
+        if crossing or not left or not right:
+            continue
+        if len(left) + len(right) != len(cand_blocks):
+            continue
+
+        # Verify vertical overlap between the two candidate columns
+        min_y_l, max_y_l = min(b[1] for b in left), max(b[3] for b in left)
+        min_y_r, max_y_r = min(b[1] for b in right), max(b[3] for b in right)
+        y_overlap = min(max_y_l, max_y_r) - max(min_y_l, min_y_r)
+        if y_overlap <= 0:
+            continue
+
+        # Verify significant horizontal separation between left and right groups
+        mean_l = sum(b[0] for b in left) / len(left)
+        mean_r = sum(b[0] for b in right) / len(right)
+        sep = mean_r - mean_l
+        if sep < 0.15 * page_width:
+            continue
+
+        if sep > max_sep:
+            max_sep = sep
+            best_split = split_x
+            best_left = left
+            best_right = right
+
+    if best_split is not None:
+        ordered = (
+            sorted(header_blocks, key=lambda b: (b[1], b[0]))
+            + sorted(best_left, key=lambda b: (b[1], b[0]))
+            + sorted(best_right, key=lambda b: (b[1], b[0]))
+            + sorted(footer_blocks, key=lambda b: (b[1], b[0]))
+        )
+        return "\n".join(b[4].strip() for b in ordered if b[4].strip())
+
+    return page.get_text("text")
+
+
 def extract_text(file_path_or_bytes: Union[str, Path, bytes, bytearray, BinaryIO], filename: str = "") -> str:
     """Extract and clean text from a PDF or DOCX file.
 
@@ -87,7 +182,7 @@ def extract_text(file_path_or_bytes: Union[str, Path, bytes, bytearray, BinaryIO
                 # Read text page by page
                 for page_num in range(doc.page_count):
                     page = doc.load_page(page_num)
-                    page_text = page.get_text("text")
+                    page_text = _extract_page_text_blocks(page)
                     if page_text:
                         extracted_chunks.append(page_text)
         except Exception as e:
