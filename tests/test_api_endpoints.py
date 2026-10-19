@@ -376,3 +376,86 @@ class TestSkillGapEndpoint:
         """Missing required query params should return 422."""
         response = client.get("/skill-gap", params={"resume_text": "Python"})
         assert response.status_code == 422
+
+
+# ===========================================================================
+# 7. POST /match Composite Mode Tests (Feature 6)
+# ===========================================================================
+
+class TestCompositeScoringAPIEndpoint:
+    """Test suite for POST /match in composite scoring mode."""
+
+    def test_match_default_mode_is_skills_only(self, client, monkeypatch):
+        """Without SCORING_MODE set, /match returns scoring_mode 'skills_only'."""
+        monkeypatch.delenv("SCORING_MODE", raising=False)
+        payload = {
+            "resume_text": "Experienced Python developer with Docker skills.",
+            "job_description": "Requirements:\n- Python\n- Docker\n",
+        }
+        response = client.post("/match", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["scoring_mode"] == "skills_only"
+        assert data["semantic_similarity"] is None
+        assert "skill_overlap_score" in data
+        assert data["final_score"] == pytest.approx(data["skill_overlap_score"], abs=1e-4)
+
+    def test_match_composite_mode_success(self, client, monkeypatch):
+        """With SCORING_MODE=composite, /match returns float semantic_similarity and scoring_mode 'composite'."""
+        monkeypatch.setenv("SCORING_MODE", "composite")
+        payload = {
+            "resume_text": (
+                "Senior Software Engineer\n"
+                "TechCorp | 2024 - Present\n"
+                "• Designed distributed systems in Python and FastAPI.\n"
+                "• Deployed to Docker and Kubernetes clusters.\n"
+            ),
+            "job_description": (
+                "Senior Backend Engineer\n"
+                "Requirements:\n"
+                "- Python\n"
+                "- FastAPI\n"
+                "- Docker\n"
+            ),
+        }
+        response = client.post("/match", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["scoring_mode"] == "composite"
+        assert isinstance(data["semantic_similarity"], float)
+        assert 0.0 <= data["semantic_similarity"] <= 1.0
+        assert isinstance(data["final_score"], float)
+        assert 0.0 <= data["final_score"] <= 1.0
+
+        # Verify score breakdown includes composite components
+        breakdown = data["score_breakdown"]
+        assert "skill" in breakdown
+        assert "semantic" in breakdown
+        assert "experience" in breakdown
+        assert "recency" in breakdown
+        assert breakdown["skill"]["weight"] == 0.40
+        assert breakdown["semantic"]["weight"] == 0.30
+        assert breakdown["experience"]["weight"] == 0.15
+        assert breakdown["recency"]["weight"] == 0.15
+
+    def test_match_composite_fallback_on_model_failure(self, client, monkeypatch):
+        """With SCORING_MODE=composite and failing model loader, /match returns 200 in skills_only mode."""
+        monkeypatch.setenv("SCORING_MODE", "composite")
+        from app import matcher
+
+        def failing_get_model():
+            raise RuntimeError("Model download failed")
+
+        monkeypatch.setattr(matcher, "get_model", failing_get_model)
+
+        payload = {
+            "resume_text": "Experienced Python developer with Docker skills.",
+            "job_description": "Requirements:\n- Python\n- Docker\n",
+        }
+        response = client.post("/match", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["scoring_mode"] == "skills_only"
+        assert data["semantic_similarity"] is None
+        assert data["final_score"] == pytest.approx(1.0, abs=1e-4)
+
