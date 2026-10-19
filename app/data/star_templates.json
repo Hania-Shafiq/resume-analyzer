@@ -1,0 +1,31 @@
+{
+  "_meta": {
+    "description": "Deterministic templates, verb mappings, and scaffolds for rule-based STAR bullet optimization."
+  },
+  "opener_verb_map": {
+    "responsible for": "Owned",
+    "worked on": "Built",
+    "helped with": "Collaborated to deliver",
+    "involved in": "Contributed to",
+    "duties included": "Executed",
+    "assisted in": "Supported",
+    "participated in": "Engaged in"
+  },
+  "default_verb": "Engineered",
+  "scaffolds": {
+    "situation": "In an engineering setting addressing {subject}",
+    "task": "Tasked with delivering {subject}",
+    "action": "{verb} {subject}",
+    "result": "[result: what improved, by how much, measured how]"
+  },
+  "placeholders": [
+    "[result: what improved, by how much, measured how]",
+    "[N%]",
+    "[N hours]",
+    "[N users]"
+  ],
+  "honesty_notes": {
+    "missing": "Only include this skill if you have genuine hands-on experience using it in this role. Never invent tools or accomplishments.",
+    "present": "Verify that all outcome placeholders accurately reflect your genuine metrics and achievements."
+  }
+}
