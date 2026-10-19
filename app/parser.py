@@ -207,3 +207,179 @@ def infer_candidate_name(filename: str) -> str:
     name = re.sub(r"\b\d+\b", " ", name)
     name = re.sub(r"\s+", " ", name).strip()
     return name.title() if name else stem
+
+
+_SECTION_KEYWORDS_RE = re.compile(
+    r"\b(resume|cv|profile|summary|education|skills)\b", re.IGNORECASE
+)
+_URL_PATTERN_RE = re.compile(
+    r"(https?://|www\.|\.(?:com|org|net|io|edu|co|ai|dev|pk|app|tech)\b)", re.IGNORECASE
+)
+_SPACY_NLP = None
+
+
+def _get_spacy_nlp():
+    """Lazy load spaCy en_core_web_sm pipeline."""
+    global _SPACY_NLP
+    if _SPACY_NLP is None:
+        import spacy
+        try:
+            _SPACY_NLP = spacy.load("en_core_web_sm")
+        except OSError:
+            _SPACY_NLP = None
+    return _SPACY_NLP
+
+
+def extract_candidate_name(text: str, filename: str = "") -> str:
+    """Extract candidate name from resume text with fallback to filename.
+
+    Strategy:
+    (a) Check the first 5 non-empty lines for a line of 2-4 words in Title Case
+        or ALL CAPS with no digits, '@', URLs or section keywords
+        (Resume, CV, Profile, Summary, Education, Skills).
+    (b) Otherwise take the first spaCy PERSON entity in the first 400 characters.
+    (c) Otherwise fall back to the existing infer_candidate_name(filename).
+    """
+    # (a) Check first 5 non-empty lines
+    if text and isinstance(text, str):
+        non_empty_lines = [
+            line.strip() for line in text.splitlines() if line.strip()
+        ][:5]
+
+        for line in non_empty_lines:
+            # Must not contain digits, '@', URLs, or section keywords
+            if re.search(r"\d", line):
+                continue
+            if "@" in line:
+                continue
+            if _URL_PATTERN_RE.search(line):
+                continue
+            if _SECTION_KEYWORDS_RE.search(line):
+                continue
+
+            words = line.split()
+            if not (2 <= len(words) <= 4):
+                continue
+
+            # Must not contain punctuation symbols common in headers / job titles / bullets
+            if re.search(r"[^\w\s\.\-']", line, re.UNICODE):
+                continue
+
+            is_caps = line.isupper()
+            is_title = line.istitle() or all(
+                w.istitle() or (w.isupper() and len(w) <= 2) for w in words
+            )
+
+            if is_title or is_caps:
+                return line.strip()
+
+        # (b) spaCy PERSON entity in first 400 characters
+        sample_text = text[:400]
+        nlp = _get_spacy_nlp()
+        if nlp is not None:
+            doc = nlp(sample_text)
+            for ent in doc.ents:
+                if ent.label_ == "PERSON":
+                    candidate = ent.text.strip()
+                    if candidate:
+                        return candidate
+
+    # (c) Fallback to infer_candidate_name(filename)
+    return infer_candidate_name(filename)
+
+
+_PHONE_PATTERN = re.compile(
+    r"""(?x)
+    (?<![\w\+])
+    (?:
+        # Pakistani +92 or 0092 (mobile: 3xx, 7 digits)
+        (?:\+92|0092)[\s.-]?(?:\(0\))?[\s.-]?\(?3\d{2}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b
+        |
+        # Pakistani 03xx
+        (?:\(03\d{2}\)|03\d{2})[\s.-]?\d{3}[\s.-]?\d{4}\b
+        |
+        (?:\(03\d{2}\)|03\d{2})[\s.-]?\d{7}\b
+        |
+        # International formats starting with +
+        \+[1-9]\d{0,2}[\s.-]?(?:\(\d{1,4}\)|\d{1,4})[\s.-]?(?:\d{1,4}[\s.-]?){1,3}\d{2,4}\b
+    )
+    """
+)
+
+
+def extract_phone(text: str) -> str | None:
+    """Extract primary contact phone number from resume text.
+
+    Supports Pakistani formats (+92 3xx xxxxxxx, 03xx-xxxxxxx) and common
+    international formats (+1, +44, etc.). Returns the first valid number or None.
+    Never returns digit runs that are years, IDs, or dates.
+    """
+    if not text or not isinstance(text, str):
+        return None
+
+    # Find candidate phone numbers
+    for match in _PHONE_PATTERN.finditer(text):
+        cand = match.group(0).strip()
+        # Clean trailing punctuation
+        cand = cand.rstrip(".,;:)>]'\"")
+
+        digits = re.sub(r"\D", "", cand)
+        # Phone numbers must have between 10 and 15 digits
+        if 10 <= len(digits) <= 15:
+            # Check that it's not a Pakistani CNIC (xxxxx-xxxxxxx-x has 13 digits but starts with 5 digits)
+            if re.match(r"^\d{5}[-]?\d{7}[-]?\d$", cand):
+                continue
+            return cand
+
+    return None
+
+
+_URL_REGEX = re.compile(
+    r"""(?xi)
+    (?<![@\w])
+    (?:
+        https?://[^\s<>'"()]+
+        |
+        www\.[^\s<>'"()]+
+        |
+        \b(?:[a-zA-Z0-9-]+\.)+(?:com|org|net|io|dev|me|ai|co|app|tech|info|edu|gov|pk|uk|ca|de|fr|xyz)(?:/[^\s<>'"()]*)?
+    )
+    """
+)
+
+
+def extract_links(text: str) -> dict[str, str | None]:
+    """Extract LinkedIn, GitHub, and other portfolio/personal links from text.
+
+    Returns
+    -------
+    dict
+        {"linkedin": str | None, "github": str | None, "other": str | None}
+        with the first match of each. Handles links with and without https:// and www.
+    """
+    links: dict[str, str | None] = {"linkedin": None, "github": None, "other": None}
+    if not text or not isinstance(text, str):
+        return links
+
+    for match in _URL_REGEX.finditer(text):
+        url = match.group(0).strip()
+        url = url.lstrip("(<[\"'").rstrip(".,;:)>]'\"")
+        if not url or "@" in url:
+            continue
+
+        url_lower = url.lower()
+
+        if "linkedin.com" in url_lower:
+            if links["linkedin"] is None:
+                links["linkedin"] = url
+        elif "github.com" in url_lower:
+            if links["github"] is None:
+                links["github"] = url
+        else:
+            if links["other"] is None:
+                links["other"] = url
+
+    return links
+
+
+

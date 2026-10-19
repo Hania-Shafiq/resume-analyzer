@@ -25,7 +25,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.parser import extract_text, extract_email, infer_candidate_name
+from app.parser import (
+    extract_text,
+    extract_email,
+    infer_candidate_name,
+    extract_candidate_name,
+    extract_phone,
+    extract_links,
+)
 from app.preprocess import light_clean
 from app.ranker import rank_candidates
 from app.recommender import load_model, recommend_roles
@@ -162,10 +169,16 @@ async def upload_resume(file: UploadFile = File(...)):
     education   = extract_education(cleaned)
     experience  = extract_experience_years(cleaned)
     email       = extract_email(raw_text) or extract_email(cleaned)
+    candidate_name = extract_candidate_name(raw_text, file.filename or "")
+    phone       = extract_phone(raw_text) or extract_phone(cleaned)
+    links       = extract_links(raw_text)
 
     return {
         "filename":         file.filename,
+        "candidate_name":   candidate_name,
         "email":            email,
+        "phone":            phone,
+        "links":            links,
         "char_count":       len(cleaned),
         "skills":           skills,
         "education":        [{"degree": e.degree, "field": e.field} for e in education],
@@ -460,8 +473,8 @@ async def bulk_analyze(
             else:
                 match_score = 0.0
 
-            # Derive candidate name from filename
-            candidate_name = infer_candidate_name(file.filename or "")
+            # Derive candidate name from resume text (fallback to filename)
+            candidate_name = extract_candidate_name(raw_text, file.filename or "")
 
             email = extract_email(raw_text) or extract_email(cleaned)
 
