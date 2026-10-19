@@ -178,7 +178,21 @@ def recommend_roles(resume_text: str, top_k: int = 4) -> list[dict[str, Any]]:
 
     classes = estimator.classes_
     top_idx = np.argsort(probs)[::-1][: min(top_k, len(classes))]
-    return [
+    results: list[dict[str, Any]] = [
         {"role": str(classes[i]), "probability_percent": round(float(probs[i]) * 100, 2)}
         for i in top_idx
     ]
+
+    scoring_mode = bundle.get("scoring_mode") or getattr(estimator, "scoring_mode", None)
+    if scoring_mode and (len(probs) > 0 and float(np.max(probs)) < 0.35):
+        results.append(
+            {
+                "note": (
+                    "Top prediction confidence is low. The resume may belong to a "
+                    "category not well represented in the training data (for example "
+                    "DevOps, Cloud or SRE). Treat these roles as suggestions only."
+                )
+            }
+        )
+
+    return results
