@@ -30,7 +30,11 @@ from app.preprocess import light_clean
 # Paths
 # ---------------------------------------------------------------------------
 MODEL_DIR = Path(__file__).parent / "models"
-MODEL_PATH = MODEL_DIR / "job_classifier.joblib"
+MODEL_PATH = (
+    MODEL_DIR / "job_classifier_v2.joblib"
+    if (MODEL_DIR / "job_classifier_v2.joblib").exists()
+    else MODEL_DIR / "job_classifier.joblib"
+)
 
 
 # ===========================================================================

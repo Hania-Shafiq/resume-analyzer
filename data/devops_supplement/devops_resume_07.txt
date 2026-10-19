@@ -1,0 +1,12 @@
+DevSecOps Engineer
+Summary: DevSecOps Engineer with 5+ years integrating automated security testing, compliance, and governance into modern cloud and DevOps environments.
+Technical Skills: AWS Security, Kubernetes, Terraform, Docker, Snyk, Trivy, SonarQube, HashiCorp Vault, CI/CD, Linux, Python.
+Experience:
+DevSecOps Engineer | SecureCloud Systems (2022 - Present)
+- Integrated static code analysis (SAST) and container vulnerability scanning (Trivy, Snyk) into GitHub Actions pipelines.
+- Enforced least privilege IAM policies across AWS accounts using automated IAM access analyzer and SCPs.
+- Hardened Kubernetes pods using OPA Gatekeeper policies and Pod Security Standards.
+Cloud Security Analyst | CyberGuard Inc (2019 - 2022)
+- Automated compliance auditing against CIS benchmarks for AWS infrastructure and Linux operating systems.
+- Managed encryption at rest and in transit using AWS KMS and HashiCorp Vault secrets management.
+Education: BS in Cybersecurity and Networking (2015 - 2019)

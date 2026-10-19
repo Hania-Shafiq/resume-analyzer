@@ -1,0 +1,12 @@
+Senior DevOps Engineer
+Summary: Senior DevOps Engineer with 6+ years of experience designing and managing cloud infrastructure on AWS. Expert in infrastructure as code with Terraform, container orchestration with Kubernetes (EKS), and building scalable CI/CD pipelines.
+Technical Skills: AWS (EC2, S3, RDS, VPC, IAM, EKS), Terraform, Kubernetes, Helm, Docker, Jenkins, GitHub Actions, CI/CD, Prometheus, Grafana, Linux, Bash, Python.
+Experience:
+Senior DevOps Engineer | CloudScale Tech (2021 - Present)
+- Architected and deployed production Kubernetes clusters on AWS EKS using Terraform, hosting 80+ microservices with 99.99% uptime.
+- Built automated CI/CD pipelines with GitHub Actions and Helm, reducing deployment cycle time from 2 hours to 10 minutes.
+- Implemented cluster-wide monitoring and alerting using Prometheus and Grafana dashboards for latency and error rates.
+DevOps Engineer | Apex Software (2018 - 2021)
+- Automated cloud infrastructure provisioning across multi-region AWS environments using Terraform modules.
+- Containerized legacy monolithic applications into Docker containers and migrated workloads to AWS ECS.
+Education: BS in Computer Science, University of Engineering and Technology (2014 - 2018)

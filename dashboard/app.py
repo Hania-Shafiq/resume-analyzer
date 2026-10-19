@@ -171,11 +171,12 @@ def _render_role_recommendations(resume_text: str, top_k: int = 4) -> None:
         return
 
     roles = data.get("recommendations") or []
-    if not roles:
+    role_items = [r for r in roles if isinstance(r, dict) and "role" in r]
+    if not role_items:
         st.info("No role recommendations were returned for this resume.")
         return
 
-    top_pct = float(roles[0]["probability_percent"])
+    top_pct = float(role_items[0]["probability_percent"])
     if top_pct >= 60:
         badge_cls, verdict = "strong", "Clear fit"
     elif top_pct >= 35:
@@ -184,7 +185,7 @@ def _render_role_recommendations(resume_text: str, top_k: int = 4) -> None:
         badge_cls, verdict = "neutral", "Mixed profile"
 
     rows = []
-    for rank, r in enumerate(roles, start=1):
+    for rank, r in enumerate(role_items, start=1):
         pct = max(0.0, min(100.0, float(r["probability_percent"])))
         name = _html.escape(str(r["role"]))
         rows.append(
@@ -639,6 +640,7 @@ elif page == "Upload Resume":
                     st.session_state["resume_data"] = data
                     st.session_state["full_resume_text"] = full_text
                     st.session_state["resume_text"] = full_text
+                    st.session_state.pop("role_cache", None)
                     
                     st.success(f"Parsed {uploaded.name} — {data['char_count']:,} characters processed.")
 

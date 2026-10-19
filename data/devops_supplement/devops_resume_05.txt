@@ -1,0 +1,12 @@
+Cloud Platform Engineer
+Summary: Platform Engineer specializing in building internal developer platforms (IDP), container platforms, and microservices infrastructure on AWS.
+Technical Skills: AWS, Kubernetes, Terraform, Helm, Docker, Go, Python, Linux, Vault, Consul, Prometheus, Datadog.
+Experience:
+Senior Platform Engineer | NextGen Digital (2021 - Present)
+- Designed and built Kubernetes-based Internal Developer Platform, allowing engineers to self-serve production-ready environments.
+- Automated secret injection into containerized services using HashiCorp Vault and Kubernetes mutating admission webhooks.
+- Deployed distributed tracing using OpenTelemetry and Datadog, instrumenting latency bottlenecks across microservices.
+DevOps Engineer | CloudNative Corp (2019 - 2021)
+- Wrote custom Terraform providers and internal CLI tools in Go to manage cloud resource life cycles.
+- Managed Kubernetes ingress controllers, SSL/TLS certificates via cert-manager, and DNS via ExternalDNS.
+Education: BS in Computer Systems (2015 - 2019)

@@ -1,0 +1,12 @@
+Release Engineer and Build Automation Specialist
+Summary: Build and Release Engineer experienced in streamlining release cycles, managing artifact repositories, and building reliable delivery pipelines.
+Technical Skills: Jenkins, GitLab CI, GitHub Actions, Docker, Artifactory, Bash, Linux, AWS, Kubernetes, Terraform, Python.
+Experience:
+Lead Release Engineer | Prime Software Solutions (2020 - Present)
+- Architected automated release pipelines supporting multi-service microservice deployments across dev, stage, and prod.
+- Built zero-downtime blue/green and canary deployment strategies on AWS and Kubernetes.
+- Managed JFrog Artifactory repository for Docker images, npm packages, and Python wheels with automated security scanning.
+Build Engineer | CodeFlow Systems (2017 - 2020)
+- Automated software compilation, unit testing, and packaging using Jenkins pipelines and Dockerized agents.
+- Wrote Bash scripts for build automation and release artifact promotion.
+Education: BS in Computer Science (2013 - 2017)

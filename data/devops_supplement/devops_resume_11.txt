@@ -1,0 +1,12 @@
+Infrastructure as Code (IaC) & Cloud Engineer
+Summary: Cloud Automation Engineer specializing in declarative infrastructure, configuration management, and automated cloud delivery using Terraform, Terragrunt, and Ansible.
+Technical Skills: Terraform, Terragrunt, Ansible, Packer, AWS, Azure, Linux, Docker, CI/CD, Python, Shell, Git.
+Experience:
+IaC Automation Engineer | CloudForge Innovations (2021 - Present)
+- Developed modular, reusable Terraform modules adopted across 30 engineering projects for AWS and Azure.
+- Automated immutable machine image creation with HashiCorp Packer and Ansible for deployment across autoscaling groups.
+- Reduced cloud infrastructure drift to zero by integrating Terraform Cloud and automated drift detection checks.
+Cloud Engineer | BlueSky Infra (2019 - 2021)
+- Managed cloud networking including VPC subnets, NAT gateways, security groups, and route tables.
+- Automated server configurations and package management across Linux environments using Ansible roles.
+Education: BS in Software Engineering (2015 - 2019)

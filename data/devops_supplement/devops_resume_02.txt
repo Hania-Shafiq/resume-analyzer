@@ -1,0 +1,12 @@
+Site Reliability Engineer (SRE)
+Summary: Site Reliability Engineer with 5 years of experience ensuring reliability, scalability, and performance of large-scale distributed systems. Focused on SLIs/SLOs, automated incident management, and infrastructure observability.
+Technical Skills: Kubernetes, Docker, Linux, Prometheus, Grafana, Python, Go, Terraform, AWS, Ansible, ELK Stack, Incident Management, Chaos Engineering.
+Experience:
+Site Reliability Engineer | Horizon Financial (2022 - Present)
+- Established error budgets, SLIs, and SLOs for critical payment processing services handling 5M transactions daily.
+- Integrated Prometheus and Grafana for proactive alerting and reduced Mean Time to Resolution (MTTR) by 45%.
+- Developed automated self-healing scripts in Python and Bash for container failover and automated node replenishment.
+Infrastructure Engineer | DataSync Systems (2019 - 2022)
+- Managed production Linux servers (RHEL/Ubuntu), performing system tuning, kernel optimization, and patch automation via Ansible.
+- Conducted root cause analyses (RCA) and blameless post-mortems for major production incidents.
+Education: BS in Information Technology (2015 - 2019)

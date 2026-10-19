@@ -1,0 +1,12 @@
+Principal Cloud Architect & DevOps Lead
+Summary: Principal Cloud Architect and DevOps Leader with 10+ years driving cloud adoption, cloud-native transformation, and engineering excellence across global organizations.
+Technical Skills: AWS, GCP, Kubernetes, Terraform, SRE, Architecture Design, CI/CD, Docker, Linux, Distributed Systems, High Availability.
+Experience:
+Principal Cloud Architect | Stratosphere Tech (2019 - Present)
+- Led cloud transformation migrating legacy on-premise data centers to AWS and GCP, reducing infrastructure costs by 35%.
+- Formulated SRE practices, disaster recovery plans, and cross-region failover protocols ensuring 99.999% uptime.
+- Mentored a team of 15 DevOps and SRE engineers in Terraform, container orchestration, and automated CI/CD practices.
+Senior DevOps Architect | CloudPinnacle (2015 - 2019)
+- Architected resilient microservices infrastructure on AWS utilizing EKS, RDS Aurora, and CloudFront.
+- Spearheaded adoption of Infrastructure as Code and automated testing across engineering departments.
+Education: MS in Software Engineering (2013 - 2015), BS in Computer Science (2009 - 2013)

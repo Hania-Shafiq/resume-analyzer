@@ -1,0 +1,12 @@
+Systems Administrator & DevOps Support Engineer
+Summary: Systems Administrator with 4 years of experience supporting production Linux systems, cloud services, and automation pipelines.
+Technical Skills: Linux (CentOS/Ubuntu), Bash, Ansible, Docker, AWS (EC2, S3, RDS), Prometheus, Grafana, Git, Python.
+Experience:
+Systems Administrator | OmniCorp Services (2021 - Present)
+- Maintained 120+ Linux virtual instances, troubleshooting OS-level issues, disk performance, and network connectivity.
+- Automated daily database backup and restoration tests using Bash scripts and Ansible.
+- Monitored server metrics with Prometheus and Grafana, responding to and mitigating production outages.
+Junior Linux Admin | FastNet Hosting (2019 - 2021)
+- Managed DNS records, SSL certificates, Apache/Nginx web servers, and user access controls.
+- Assisted developers in deploying containerized microservices with Docker Compose.
+Education: Associate Degree in Network Systems Administration (2017 - 2019)

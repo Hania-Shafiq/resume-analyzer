@@ -1,0 +1,12 @@
+Cloud Infrastructure Architect
+Summary: Solutions Architect and Cloud Engineer with 8+ years designing enterprise-grade cloud environments on AWS and Azure. Proven track record in cloud migrations, security governance, and high availability architectures.
+Technical Skills: AWS (VPC, Transit Gateway, Route53, Direct Connect, Organizations), Azure, Terraform, CloudFormation, Kubernetes, Docker, CI/CD, Linux.
+Experience:
+Lead Cloud Architect | Enterprise Cloud Solutions (2020 - Present)
+- Designed multi-account AWS landing zones using AWS Organizations, Control Tower, and Terraform.
+- Migrated 150+ on-premises virtual machines to AWS with minimal downtime using AWS Application Migration Service.
+- Enforced infrastructure security standards using Terraform Sentinel and AWS Config rules.
+Cloud Systems Engineer | Global IT Networks (2016 - 2020)
+- Automated network routing, VPN connections, and VPC peering connections across 12 AWS regions.
+- Managed enterprise backup and disaster recovery (DR) strategies with automated cross-region replication.
+Education: MS in Computer Engineering (2014 - 2016), BS in Computer Science (2010 - 2014)

@@ -1,0 +1,12 @@
+SRE and Observability Engineer
+Summary: Reliability Engineer with deep specialization in distributed tracing, telemetry, log aggregation, and real-time observability across multi-cloud infrastructure.
+Technical Skills: Prometheus, Grafana, OpenTelemetry, ELK Stack (Elasticsearch, Logstash, Kibana), AWS, Kubernetes, Docker, Linux, Python.
+Experience:
+Observability & SRE Lead | MetricStream Systems (2021 - Present)
+- Architected centralized observability platform ingesting 10TB of logs, metrics, and traces daily across 50 Kubernetes clusters.
+- Built standardized Grafana dashboards for golden signals (latency, traffic, errors, saturation) across engineering teams.
+- Implemented automated alerting rules in Prometheus Alertmanager with PagerDuty integration for on-call engineers.
+SRE Engineer | CloudCore Technologies (2018 - 2021)
+- Maintained production Elasticsearch clusters, optimizing index lifecycle management and query performance.
+- Reduced false-positive alerts by 60% through metric aggregation and dynamic threshold tuning.
+Education: BS in Computer Science (2014 - 2018)

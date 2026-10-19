@@ -1,0 +1,12 @@
+Cloud Operations & DevOps Engineer
+Summary: Cloud operations engineer skilled in managing AWS environments, infrastructure automation, backup/restore pipelines, and continuous deployment workflows.
+Technical Skills: AWS (EC2, S3, RDS, CloudWatch, Lambda), Terraform, Docker, Ansible, Linux, Bash, CI/CD, Python, Git.
+Experience:
+Cloud Operations Engineer | Global Cloud Services (2020 - Present)
+- Managed operational health of 250+ EC2 instances and serverless AWS Lambda workloads in multi-tier architectures.
+- Automated infrastructure provisioning and patching schedules with Terraform and AWS Systems Manager.
+- Wrote Python and Bash automation scripts for automated database snapshots, backup verification, and log rotation.
+Junior DevOps Engineer | TechVibe Solutions (2018 - 2020)
+- Assisted in building CI/CD deployment pipelines using Jenkins and Docker for staging environments.
+- Monitored AWS CloudWatch alarms and resolved operational tickets according to agreed SLAs.
+Education: BS in Computer Engineering (2014 - 2018)

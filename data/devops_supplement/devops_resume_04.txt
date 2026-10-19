@@ -1,0 +1,12 @@
+DevOps and CI/CD Automation Specialist
+Summary: DevOps specialist focused on software delivery pipelines, test automation integration, and configuration management. Passionate about GitOps workflows and developer productivity.
+Technical Skills: GitLab CI, GitHub Actions, Jenkins, ArgoCD, Ansible, Docker, Kubernetes, Terraform, AWS, Linux (Ubuntu/CentOS), Shell Scripting.
+Experience:
+DevOps Automation Lead | AgileDev Labs (2021 - Present)
+- Implemented GitOps deployment pipelines using ArgoCD and Kubernetes, enabling true continuous delivery for 40 developer squads.
+- Standardized Docker base images, scanning for vulnerabilities using Trivy in CI pipelines and reducing image sizes by 60%.
+- Configured Ansible playbooks to provision and maintain 200+ staging and production Linux virtual machines.
+CI/CD Engineer | Velocity Software (2018 - 2021)
+- Maintained enterprise Jenkins cluster with dynamic Kubernetes agents, cutting build queue wait times by 80%.
+- Automated artifact publishing to Nexus and automated version tagging using semantic release tools.
+Education: Bachelor of Science in Software Engineering (2014 - 2018)

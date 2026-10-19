@@ -1,0 +1,12 @@
+Kubernetes Platform & Cloud Engineer
+Summary: Certified Kubernetes Administrator (CKA) with 6 years of experience building and operating enterprise container platforms, cloud infrastructure, and service meshes.
+Technical Skills: Kubernetes (EKS, AKS, GKE), Helm, Docker, Istio, Terraform, AWS, Linux, CI/CD, GitOps, Flux, Prometheus, Grafana.
+Experience:
+Senior Kubernetes Engineer | ContainerLabs (2021 - Present)
+- Managed production Kubernetes environments across hybrid cloud infrastructures, running 1200+ microservice pods.
+- Implemented Istio service mesh for traffic routing, canary deployments, mTLS authentication, and service-to-service telemetry.
+- Designed automated GitOps release workflows using Flux and Helm charts for reproducible cluster configurations.
+DevOps Engineer | MicroDeploy (2018 - 2021)
+- Built Docker images adhering to container security best practices, multi-stage builds, and minimal attack surfaces.
+- Configured Kubernetes horizontal pod autoscaling (HPA) and cluster autoscaling based on custom Prometheus metrics.
+Education: BS in Computer Science (2014 - 2018)

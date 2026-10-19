@@ -1,0 +1,12 @@
+Linux Systems and Infrastructure Engineer
+Summary: Systems Engineer with deep expertise in enterprise Linux administration, automation, virtualization, and cloud infrastructure management.
+Technical Skills: Linux (RHEL, CentOS, Debian, Ubuntu), Ansible, Bash, Python, Docker, AWS, Nginx, HAProxy, Terraform, Monitoring, Apache.
+Experience:
+Senior Systems Administrator | Infraworks Group (2020 - Present)
+- Managed fleet of 500+ Linux servers running high-throughput web applications with 99.98% availability.
+- Automated system configurations, user provisioning, and software updates across all environments using Ansible playbooks.
+- Configured HAProxy and Nginx reverse proxies with load balancing and SSL offloading for mission-critical web traffic.
+Linux Administrator | NetSolutions (2017 - 2020)
+- Configured systemd services, cron jobs, and customized kernel parameters for I/O-intensive workloads.
+- Monitored server health, disk usage, CPU and memory utilization using Nagios and Prometheus node-exporter.
+Education: BS in Information Systems (2013 - 2017)

@@ -1,0 +1,11 @@
+STAFF DEVOPS ARCHITECT
+Farhan Ahmed
+farhan.ahmed@example.com | (021) 3456-7890 | Karachi, Pakistan | linkedin.com/in/farhan-devops
+EXPERIENCE
+Senior Cloud Engineer — Enterprise Cloud Corp (03/2020 - 08/2023)
+• Automated AWS multi-account governance using Terraform and GitHub Actions, cutting provisioning time from 4 days to 25 minutes.
+• Responsible for server maintenance and deployment scripts.
+EDUCATION
+BS Computer Science — FAST-NUCES (2016 - 2020)
+TECHNICAL PROFICIENCIES
+AWS, Terraform, Kubernetes, Linux, Python, CI/CD, Prometheus, Grafana

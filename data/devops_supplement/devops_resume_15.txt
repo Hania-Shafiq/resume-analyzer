@@ -1,0 +1,12 @@
+Cloud DevOps Consultant
+Summary: Cloud and DevOps Consultant advising enterprise clients on cloud migration, containerization, CI/CD pipelines, and infrastructure automation.
+Technical Skills: AWS, Microsoft Azure, Terraform, Kubernetes, Docker, GitHub Actions, Ansible, Linux, Prometheus, Grafana.
+Experience:
+DevOps Consultant | CloudFirst Advisory (2021 - Present)
+- Consulted for 10+ enterprise clients, designing and implementing tailored AWS and Azure cloud architectures using Terraform.
+- Built secure, automated CI/CD delivery pipelines from scratch using GitHub Actions, Docker, and Kubernetes.
+- Conducted cloud readiness assessments and trained client engineering teams on SRE principles and Prometheus monitoring.
+Cloud Consultant | Technovate Partners (2019 - 2021)
+- Migrated client web applications from legacy VPS hosting to containerized environments on AWS.
+- Configured infrastructure monitoring dashboards in Grafana and configured alerting thresholds.
+Education: BS in Computer Engineering (2015 - 2019)
