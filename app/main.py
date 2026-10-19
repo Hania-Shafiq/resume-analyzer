@@ -170,6 +170,13 @@ async def upload_resume(file: UploadFile = File(...)):
     skills      = extract_skills(cleaned)
     education   = extract_education(cleaned)
     experience  = extract_experience_years(cleaned)
+    exp_summary = extract_experience(raw_text)
+
+    # Fallback: if explicit phrase (e.g. "5 years of experience") wasn't in text,
+    # compute experience years from parsed work history date intervals
+    if experience is None and exp_summary.professional_months > 0:
+        experience = exp_summary.professional_months // 12
+
     email       = extract_email(raw_text) or extract_email(cleaned)
     candidate_name = extract_candidate_name(raw_text, file.filename or "")
     phone       = extract_phone(raw_text) or extract_phone(cleaned)
@@ -185,6 +192,11 @@ async def upload_resume(file: UploadFile = File(...)):
         "skills":           skills,
         "education":        [{"degree": e.degree, "field": e.field} for e in education],
         "experience_years": experience,
+        "professional_months": exp_summary.professional_months,
+        "freelance_months": exp_summary.freelance_months,
+        "professional_experience_str": exp_summary.professional_str,
+        "freelance_experience_str": exp_summary.freelance_str,
+        "combined_experience_str": exp_summary.combined_str,
         "text_preview":     cleaned[:500] + ("..." if len(cleaned) > 500 else ""),
         "extracted_text":   cleaned,
         "raw_text":         raw_text,

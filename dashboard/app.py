@@ -655,8 +655,10 @@ elif page == "Upload Resume":
                         </article>
                         """)
                     with m2:
-                        exp = data["experience_years"]
-                        exp_str = f"{exp} yrs" if exp else "Not indicated"
+                        exp_str = data.get("professional_experience_str")
+                        if not exp_str or exp_str in ("Not indicated", "None"):
+                            exp = data.get("experience_years")
+                            exp_str = f"{exp} yrs" if exp else "Not indicated"
                         H(f"""
                         <article class="bento-card fade-up-2">
                         <span class="section-label">EXPERIENCE</span>
