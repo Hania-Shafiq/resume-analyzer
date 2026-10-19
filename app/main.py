@@ -64,6 +64,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from app.routers_star import star_router; app.include_router(star_router)
+
 
 # ---------------------------------------------------------------------------
 # Schemas
