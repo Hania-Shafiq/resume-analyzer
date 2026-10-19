@@ -239,6 +239,9 @@ def match_resume_to_jd(body: MatchRequest):
       - proposal: Multidimensional composite score combining skill overlap (0.40),
         semantic similarity (0.40), experience timeline fit (0.10), and education
         tier fit (0.10).
+      - composite: Multi-modal composite score combining skill coverage with evidence
+        multipliers (0.40), semantic similarity (0.30), experience timeline fit (0.15),
+        and skill recency with exponential half-life decay (0.15).
 
     Returns
     -------
@@ -246,8 +249,9 @@ def match_resume_to_jd(body: MatchRequest):
       - skill_overlap_score: float (0.0 to 1.0)
       - final_score: float (0.0 to 1.0), equal to skill_overlap_score in skills_only mode
       - semantic_similarity: float (0.0 to 1.0) or None if in skills_only mode
-      - scoring_mode: str ('skills_only', 'hybrid', or 'proposal')
+      - scoring_mode: str ('skills_only', 'hybrid', 'proposal', or 'composite')
       - score_breakdown: dict of component values, weights, and weighted contributions
+      - skill_recency: dict of per-skill recency data (in composite mode) or None
       - required_matched, preferred_matched, required_missing, preferred_missing: skill lists
       - total_required, total_preferred: counts
     """

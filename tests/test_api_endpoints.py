@@ -459,3 +459,52 @@ class TestCompositeScoringAPIEndpoint:
         assert data["semantic_similarity"] is None
         assert data["final_score"] == pytest.approx(1.0, abs=1e-4)
 
+    def test_bulk_analyze_encodes_jd_once_for_50_resumes(self, client, monkeypatch):
+        """Verify that in semantic/hybrid mode, the job description is encoded once across 50 resumes."""
+        monkeypatch.setenv("SCORING_MODE", "hybrid")
+        from app.matcher import get_model, split_sentences
+
+        model = get_model()
+        real_encode = model.encode
+
+        jd_text = "Requirements:\n- Python\n- FastAPI\nPreferred:\n- Docker\n"
+        jd_chunks_tuple = tuple(split_sentences(jd_text))
+
+        encode_calls = []
+
+        def spy_encode(sentences, *args, **kwargs):
+            encode_calls.append(tuple(sentences))
+            return real_encode(sentences, *args, **kwargs)
+
+        model.encode = spy_encode
+        try:
+            files = [
+                (
+                    "files",
+                    (
+                        f"candidate_{i:03d}.txt",
+                        f"Candidate {i}\nSkills: Python, FastAPI\nExperience: Developer 2024-Present".encode("utf-8"),
+                        "text/plain",
+                    ),
+                )
+                for i in range(50)
+            ]
+            response = client.post(
+                "/resume/bulk-analyze",
+                files=files,
+                data={"job_description": jd_text},
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["summary"]["total_analyzed"] == 50
+            assert len(data["results"]) == 50
+
+            # The JD chunks must be encoded exactly once (cached for all remaining resumes)
+            jd_encode_count = sum(1 for call in encode_calls if call == jd_chunks_tuple)
+            assert jd_encode_count == 1
+            # Total encode calls: 1 (JD) + 50 (resumes) = 51
+            assert len(encode_calls) == 51
+        finally:
+            model.encode = real_encode
+
+
