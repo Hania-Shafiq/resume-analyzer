@@ -97,6 +97,79 @@ class TestParserFormats:
         assert "Alex Murphy" in extracted
         assert "Terraform" in extracted
 
+    def test_txt_extraction_utf8_with_bom(self):
+        """Ensure UTF-8 with BOM (Byte Order Mark) is parsed cleanly without BOM artifact."""
+        txt_content = "\ufeffFatima Khan\nPython Developer\nSkills: Python, Django, PostgreSQL\n3 years experience"
+        extracted = extract_text(txt_content.encode("utf-8-sig"), filename="resume_bom.txt")
+        assert "Fatima Khan" in extracted
+        assert not extracted.startswith("\ufeff")
+        assert "PostgreSQL" in extracted
+
+    def test_txt_extraction_latin1(self):
+        """Ensure Latin-1 / non-UTF8 encoded text with special characters is handled gracefully."""
+        txt_content = "René Müller\nSoftware Engineer\nSkills: C++, Qt, Python\nZürich, Switzerland"
+        latin1_bytes = txt_content.encode("latin-1")
+        extracted = extract_text(latin1_bytes, filename="resume_latin1.txt")
+        assert "Müller" in extracted or "Ren" in extracted
+        assert "Python" in extracted
+
+    def test_txt_file_path_extraction(self, tmp_path):
+        """Ensure extracting text from a .txt file on disk works correctly."""
+        txt_path = tmp_path / "candidate_resume.txt"
+        txt_path.write_text("Sarah Connor\nCybersecurity Specialist\nSkills: Linux, Python, Wireshark", encoding="utf-8")
+        extracted = extract_text(txt_path)
+        assert "Sarah Connor" in extracted
+        assert "Cybersecurity Specialist" in extracted
+        assert "Wireshark" in extracted
+
+    def test_doc_extraction_valid(self):
+        """Ensure .doc format is accepted and handled."""
+        content = "John Doe\nBackend Developer\nSkills: Java, Spring Boot, MySQL"
+        extracted = extract_text(content.encode("utf-8"), filename="resume.doc")
+        assert "John Doe" in extracted
+        assert "Spring Boot" in extracted
+
+    def test_txt_resume_pipeline_integration(self):
+        """Verify extracted text from TXT works seamlessly with all NLP pipeline components."""
+        from app.skills import extract_skills, extract_education, extract_experience_years
+        from app.parser import extract_email, extract_candidate_name, extract_phone
+        from app.preprocess import light_clean
+
+        txt_resume = (
+            "David Kim\n"
+            "david.kim@example.com | +1 555-234-5678\n"
+            "Summary: Senior Cloud Engineer with 6 years of experience.\n"
+            "Education: Bachelor of Science in Computer Science\n"
+            "Skills: Python, FastAPI, Docker, Kubernetes, AWS, PostgreSQL\n"
+            "Experience:\n"
+            "- Led cloud infrastructure migration to AWS.\n"
+        )
+        extracted = extract_text(txt_resume.encode("utf-8"), filename="david_kim.txt")
+        cleaned = light_clean(extracted)
+
+        # 1. Candidate identity extraction
+        name = extract_candidate_name(extracted, "david_kim.txt")
+        assert "David Kim" in name
+        email = extract_email(extracted)
+        assert email == "david.kim@example.com"
+        phone = extract_phone(extracted)
+        assert phone is not None
+
+        # 2. Skill extraction
+        skills = extract_skills(cleaned)
+        assert "python" in skills
+        assert "docker" in skills
+        assert "kubernetes" in skills
+        assert "aws" in skills
+
+        # 3. Education extraction
+        edu = extract_education(cleaned)
+        assert any(e.degree == "Bachelor's" for e in edu)
+
+        # 4. Experience years extraction
+        exp = extract_experience_years(cleaned)
+        assert exp == 6
+
 
 class TestParserEmptyInputs:
     """Tests for empty files and missing text."""

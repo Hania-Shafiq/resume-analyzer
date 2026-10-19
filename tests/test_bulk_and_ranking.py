@@ -203,6 +203,30 @@ class TestBulkAnalyzeAPI:
         assert "fastapi" in alice["required_matched"]
         assert "docker" in alice["required_matched"]
 
+    def test_bulk_analyze_mixed_formats(self):
+        """Upload batch with mix of PDF, DOCX, DOC, and TXT files."""
+        pdf_bytes = make_pdf_bytes("David Miller\nPython, Docker\n3 years experience")
+        docx_bytes = make_docx_bytes("Emma Watson\nPython, FastAPI\n4 years experience")
+        doc_bytes = b"Frank Castle\nPython, AWS\n5 years experience"
+        txt_bytes = make_txt_bytes("Grace Hopper\nPython, Kubernetes\n6 years experience")
+
+        files = [
+            ("files", ("david.pdf", pdf_bytes, "application/pdf")),
+            ("files", ("emma.docx", docx_bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")),
+            ("files", ("frank.doc", doc_bytes, "application/msword")),
+            ("files", ("grace.txt", txt_bytes, "text/plain")),
+        ]
+        response = client.post(
+            "/resume/bulk-analyze",
+            files=files,
+            data={"job_description": self.JD},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["summary"]["total_uploaded"] == 4
+        assert data["summary"]["total_analyzed"] == 4
+        assert data["summary"]["total_failed"] == 0
+
     def test_duplicate_file_detection(self):
         content = "Charlie Brown\nPython, Docker\n3 years experience"
         b = make_txt_bytes(content)

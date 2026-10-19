@@ -123,7 +123,7 @@ class ExportRequest(BaseModel):
 # ---------------------------------------------------------------------------
 MAX_FILES = 200
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt"}
 
 
 # ---------------------------------------------------------------------------

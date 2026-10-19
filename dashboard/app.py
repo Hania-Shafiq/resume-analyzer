@@ -620,8 +620,8 @@ elif page == "Upload Resume":
     """)
 
     uploaded = st.file_uploader(
-        "Drop your resume here (PDF or DOCX)",
-        type=["pdf", "docx"],
+        "Drop your resume here (PDF, DOC/DOCX, or TXT)",
+        type=["pdf", "docx", "doc", "txt"],
         label_visibility="collapsed",
     )
 
@@ -1054,8 +1054,8 @@ elif page == "Bulk Upload & Rank":
     # --- Section 2: Bulk File Uploader ---
     H('<span class="section-label">STEP 2: RESUME BATCH UPLOAD (UP TO 200 FILES)</span>')
     bulk_files = st.file_uploader(
-        "Upload multiple resumes (PDF, DOCX, TXT)",
-        type=["pdf", "docx", "txt"],
+        "Upload multiple resumes (PDF, DOC/DOCX, TXT)",
+        type=["pdf", "docx", "doc", "txt"],
         accept_multiple_files=True,
         label_visibility="collapsed",
         key="bulk_file_uploader",

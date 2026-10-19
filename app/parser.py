@@ -143,9 +143,9 @@ def extract_text(file_path_or_bytes: Union[str, Path, bytes, bytearray, BinaryIO
     ext = Path(target_name).suffix.lower()
 
     # Step 2: Validate supported extensions
-    if ext not in [".pdf", ".docx", ".txt"]:
+    if ext not in [".pdf", ".docx", ".doc", ".txt"]:
         raise ValueError(
-            f"Unsupported file format '{ext}'. Only .pdf, .docx, and .txt files are supported."
+            f"Unsupported file format '{ext}'. Only .pdf, .docx, .doc, and .txt files are supported."
         )
 
     # Step 3: Check if file path exists or read bytes
@@ -190,8 +190,9 @@ def extract_text(file_path_or_bytes: Union[str, Path, bytes, bytearray, BinaryIO
                 raise
             raise ValueError(f"Failed to parse PDF document: {e}") from e
 
-    elif ext == ".docx":
+    elif ext in [".docx", ".doc"]:
         # Open DOCX from byte stream using python-docx
+        parsed_docx = False
         try:
             doc = docx.Document(io.BytesIO(raw_bytes))
 
@@ -212,17 +213,56 @@ def extract_text(file_path_or_bytes: Union[str, Path, bytes, bytearray, BinaryIO
                             deduped_cells.append(cell_text)
                     if deduped_cells:
                         extracted_chunks.append(" | ".join(deduped_cells))
+            parsed_docx = True
         except Exception as e:
-            if isinstance(e, ValueError):
-                raise
-            raise ValueError(f"Failed to parse DOCX document: {e}") from e
+            if ext == ".doc":
+                # Fallback for binary legacy Word (.doc) files: extract text strings
+                try:
+                    # 1. UTF-16LE text runs (standard Word 97-2003 text stream)
+                    utf16_runs = re.findall(rb"(?:[\x20-\x7e\t\r\n]\x00){3,}", raw_bytes)
+                    for r in utf16_runs:
+                        try:
+                            s = r.decode("utf-16le", errors="ignore").strip()
+                            if len(s) >= 3 and not s.startswith("Microsoft Word"):
+                                extracted_chunks.append(s)
+                        except Exception:
+                            pass
+
+                    # 2. ASCII / UTF-8 text runs
+                    ascii_runs = re.findall(rb"[\x20-\x7e\t\r\n]{3,}", raw_bytes)
+                    for r in ascii_runs:
+                        try:
+                            s = r.decode("utf-8", errors="ignore").strip()
+                            if len(s) >= 3 and s not in extracted_chunks:
+                                extracted_chunks.append(s)
+                        except Exception:
+                            pass
+
+                    if not extracted_chunks:
+                        raise ValueError(f"Failed to parse DOC document: {e}")
+                except Exception as doc_err:
+                    if isinstance(doc_err, ValueError):
+                        raise
+                    raise ValueError(f"Failed to parse DOC document: {doc_err}") from doc_err
+            else:
+                if isinstance(e, ValueError):
+                    raise
+                raise ValueError(f"Failed to parse DOCX document: {e}") from e
 
     elif ext == ".txt":
-        # Decode plain text bytes as UTF-8 (with fallback for encoding issues)
+        # Decode plain text bytes: support UTF-8 (with BOM), Latin-1, or replace
         try:
-            text_content = raw_bytes.decode("utf-8", errors="replace")
+            try:
+                text_content = raw_bytes.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                try:
+                    text_content = raw_bytes.decode("latin-1")
+                except Exception:
+                    text_content = raw_bytes.decode("utf-8", errors="replace")
+
+            text_content = text_content.lstrip("\ufeff")
             for line in text_content.splitlines():
-                stripped = line.strip()
+                stripped = line.strip().lstrip("\ufeff")
                 if stripped:
                     extracted_chunks.append(stripped)
         except Exception as e:

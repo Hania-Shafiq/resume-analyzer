@@ -107,6 +107,19 @@ class TestResumeUploadEndpoint:
         assert "kubernetes" in data["skills"]
         assert data["experience_years"] == 4
 
+    def test_upload_doc_success(self, client):
+        """Upload a valid DOC resume and verify extraction."""
+        doc_bytes = b"Maria Garcia\nFull Stack Engineer\nSkills: React, Node.js, PostgreSQL\nBachelor of Science in Software Engineering"
+        response = client.post(
+            "/resume/upload",
+            files={"file": ("resume.doc", doc_bytes, "application/msword")},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["filename"] == "resume.doc"
+        assert "react" in data["skills"]
+
+
     def test_upload_wrong_file_type_fails(self, client):
         """Upload an unsupported file format (.png / .xyz) should fail with 422."""
         response = client.post(
