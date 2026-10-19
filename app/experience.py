@@ -148,10 +148,39 @@ NEXT_SECTION_HEADERS = [
     "profile",
 ]
 
+EDUCATION_SECTION_HEADERS = [
+    "education",
+    "academic background",
+    "academics",
+    "qualifications",
+    "academic qualifications",
+    "educational background",
+    "education and certifications",
+    "education & certifications",
+    "education and training",
+]
+
+_ALL_SECTION_HEADERS = set(
+    SECTION_HEADERS + NEXT_SECTION_HEADERS + EDUCATION_SECTION_HEADERS + [
+        "academic background", "education & certifications", "work", "job history"
+    ]
+)
+
+_EDU_DEGREE_ABBR = r"(?<![a-zA-Z0-9])(?:b\.?\s*s\.?(?:c)?|b\.?\s*e\.?|m\.?\s*s\.?(?:c)?|m\.?\s*e\.?|ph\.?\s*d\.?)(?![a-zA-Z0-9])"
+_EDU_KEYWORDS = r"\b(?:university|college|institute|bachelor(?:'s)?|master(?:'s)?|doctorate|diploma)\b"
+EDU_LINE_PATTERN = re.compile(rf"{_EDU_DEGREE_ABBR}|{_EDU_KEYWORDS}", re.IGNORECASE)
+
+COMMON_TITLE_KEYWORDS = {
+    "engineer", "developer", "architect", "manager", "lead", "director",
+    "consultant", "analyst", "designer", "specialist", "intern", "trainee",
+    "associate", "officer", "administrator", "scientist", "programmer",
+    "coordinator", "head", "vp", "president", "technician",
+}
+
 # Date range regexes
 # 1) Month Year – Month Year (e.g. Jan 2021 – Mar 2023, January 2021 to Present)
 _MONTHS_PATTERN = r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
-_SEP_PATTERN = r"(?:\s*[-–—/to]+\s*)"
+_SEP_PATTERN = r"(?:\s*(?:[-–—/]|to|until|till)+\s*)"
 _PRESENT_PATTERN = r"(?:present|current|now|till\s*date|ongoing|active)"
 
 RE_MONTH_YEAR_RANGE = re.compile(
@@ -171,7 +200,13 @@ RE_YEAR_RANGE = re.compile(
     re.IGNORECASE,
 )
 
-# 4) Explicit duration strings: "2 years", "6 months", "1 year 4 months"
+# 4) Since / From (e.g. Since 2022, Since Jan 2021)
+RE_SINCE_RANGE = re.compile(
+    rf"\b(?:since|from)\s+(?:({_MONTHS_PATTERN})\s+['’]?([12]\d{{3}})|(0?[1-9]|1[0-2])[/-]([12]\d{{3}})|([12]\d{{3}}))(?!\s*(?:[-–—/]|to|until|till)\s*(?:[12]\d{{3}}|{_MONTHS_PATTERN}|{_PRESENT_PATTERN}))\b",
+    re.IGNORECASE,
+)
+
+# 5) Explicit duration strings: "2 years", "6 months", "1 year 4 months"
 RE_EXPLICIT_DURATION = re.compile(
     r"\b(?:(\d+)\s*(?:years?|yrs?))?\s*(?:and\s*)?(?:(\d+)\s*(?:months?|mos?))?\b",
     re.IGNORECASE,
@@ -195,6 +230,94 @@ def _parse_month(m_str: str) -> int:
     return MONTH_MAP.get(m_clean, 1)
 
 
+def _is_section_header(line: str) -> Optional[str]:
+    """Check if a line looks like a known section header."""
+    norm = re.sub(r"^[#*\-=_:\s\d\.]+|[#*\-=_:\s\d\.]+$", "", line).strip().lower()
+    if not norm:
+        return None
+    for h in EDUCATION_SECTION_HEADERS:
+        if norm == h or norm.startswith(f"{h}:"):
+            return "education"
+    for h in SECTION_HEADERS:
+        if norm == h or norm.startswith(f"{h}:"):
+            return "experience"
+    for h in NEXT_SECTION_HEADERS:
+        if norm == h or norm.startswith(f"{h}:"):
+            return "other"
+    if norm in _ALL_SECTION_HEADERS:
+        return "other"
+    return None
+
+
+def _is_date_only_line(line: str, matched_str: str) -> bool:
+    """Check if the line contains only a date range (ignoring bullets, spaces, delimiters)."""
+    rem = line.replace(matched_str, "")
+    rem_clean = re.sub(r"[\s\-\–\—\•\*\:\,\(\)\[\]\|\./]", "", rem)
+    return len(rem_clean) == 0
+
+
+def _is_date_line(line: str) -> bool:
+    """Check if a line matches any date range pattern."""
+    return bool(
+        RE_MONTH_YEAR_RANGE.search(line)
+        or RE_NUM_MONTH_RANGE.search(line)
+        or RE_YEAR_RANGE.search(line)
+        or RE_SINCE_RANGE.search(line)
+    )
+
+
+def _extract_title_company_from_preceding_lines(
+    lines: List[str], current_idx: int
+) -> Tuple[str, str]:
+    """Scan backwards up to 2 non-empty lines for job title and company."""
+    prev_lines = []
+    for j in range(current_idx - 1, -1, -1):
+        cand = lines[j].strip()
+        if not cand:
+            continue
+        if _is_section_header(cand) or _is_date_line(cand):
+            break
+        prev_lines.append(cand)
+        if len(prev_lines) == 2:
+            break
+
+    if not prev_lines:
+        return "", ""
+
+    if len(prev_lines) == 1:
+        p0 = prev_lines[0]
+        if "|" in p0:
+            parts = [p.strip() for p in p0.split("|") if p.strip()]
+            return (parts[0], parts[1] if len(parts) > 1 else "")
+        elif " at " in p0:
+            parts = p0.split(" at ", 1)
+            return (parts[0].strip(), parts[1].strip())
+        elif ", " in p0:
+            parts = p0.split(", ", 1)
+            return (parts[0].strip(), parts[1].strip())
+        else:
+            return (p0, "")
+
+    # len(prev_lines) == 2: prev_lines[0] is line -1, prev_lines[1] is line -2
+    p_minus_1 = prev_lines[0]
+    p_minus_2 = prev_lines[1]
+
+    if "|" in p_minus_1:
+        parts = [p.strip() for p in p_minus_1.split("|") if p.strip()]
+        return (parts[0], parts[1] if len(parts) > 1 else "")
+    elif " at " in p_minus_1:
+        parts = p_minus_1.split(" at ", 1)
+        return (parts[0].strip(), parts[1].strip())
+
+    p1_is_title = any(w in p_minus_1.lower() for w in COMMON_TITLE_KEYWORDS)
+    p2_is_title = any(w in p_minus_2.lower() for w in COMMON_TITLE_KEYWORDS)
+
+    if p1_is_title and not p2_is_title:
+        return (p_minus_1, p_minus_2)
+    else:
+        return (p_minus_2, p_minus_1)
+
+
 def parse_date_endpoints(start_str: str, end_str: str, now: Optional[datetime.date] = None) -> Optional[DateInterval]:
     """Parse start and end strings into a DateInterval."""
     if now is None:
@@ -202,6 +325,12 @@ def parse_date_endpoints(start_str: str, end_str: str, now: Optional[datetime.da
 
     cur_year = now.year
     cur_month = now.month
+
+    # Handle 'Since YYYY' or 'From YYYY'
+    start_str_clean = re.sub(r"^(?:since|from)\s+", "", start_str.strip(), flags=re.IGNORECASE).strip()
+    if not end_str or not end_str.strip():
+        end_str = "Present"
+    start_str = start_str_clean
 
     # End date handling
     end_str_clean = end_str.strip().lower()
@@ -340,81 +469,114 @@ def extract_experience(text: str, now: Optional[datetime.date] = None) -> Experi
 
     lines = text.splitlines()
     entries: List[ExperienceEntry] = []
+    current_section = "other"
 
     # Step 1: Scan lines for date ranges
-    for line in lines:
+    for idx, line in enumerate(lines):
         line_clean = line.strip()
         if not line_clean:
             continue
 
-        # Try Month Year Range
+        sec_header = _is_section_header(line_clean)
+        if sec_header is not None:
+            current_section = sec_header
+            continue
+
+        # Look for date ranges in this line
+        matched = False
+        s_str, e_str, match_text = "", "", ""
+
+        # 1) Month Year Range
         m_my = RE_MONTH_YEAR_RANGE.search(line_clean)
         if m_my:
-            s_str, e_str = m_my.group(1) + " " + m_my.group(2), m_my.group(3)
-            interval = parse_date_endpoints(s_str, e_str, now=now)
-            if interval:
-                bucket, is_intern, conf = classify_bucket(line_clean)
-                parts = [p.strip() for p in line_clean.split("|") if p.strip()]
-                title = parts[0] if parts else line_clean
-                company = parts[1] if len(parts) > 1 else ""
-                entries.append(ExperienceEntry(
-                    title=title,
-                    company=company,
-                    start_date_str=s_str,
-                    end_date_str=e_str,
-                    interval=interval,
-                    bucket=bucket,
-                    is_internship=is_intern,
-                    confidence=conf,
-                    raw_text=line_clean,
-                ))
-                continue
+            s_str = m_my.group(1) + " " + m_my.group(2)
+            e_str = m_my.group(3)
+            match_text = m_my.group(0)
+            matched = True
+        else:
+            # 2) MM/YYYY Range
+            m_num = RE_NUM_MONTH_RANGE.search(line_clean)
+            if m_num:
+                s_str = m_num.group(1) + "/" + m_num.group(2)
+                e_str = m_num.group(3)
+                match_text = m_num.group(0)
+                matched = True
+            else:
+                # 3) YYYY Range
+                m_yr = RE_YEAR_RANGE.search(line_clean)
+                if m_yr:
+                    s_str = m_yr.group(1)
+                    e_str = m_yr.group(2)
+                    match_text = m_yr.group(0)
+                    matched = True
+                else:
+                    # 4) Since Range
+                    m_since = RE_SINCE_RANGE.search(line_clean)
+                    if m_since:
+                        if m_since.group(1) and m_since.group(2):
+                            s_str = m_since.group(1) + " " + m_since.group(2)
+                        elif m_since.group(3) and m_since.group(4):
+                            s_str = m_since.group(3) + "/" + m_since.group(4)
+                        else:
+                            s_str = m_since.group(5)
+                        e_str = "Present"
+                        match_text = m_since.group(0)
+                        matched = True
 
-        # Try MM/YYYY Range
-        m_num = RE_NUM_MONTH_RANGE.search(line_clean)
-        if m_num:
-            s_str, e_str = m_num.group(1) + "/" + m_num.group(2), m_num.group(3)
-            interval = parse_date_endpoints(s_str, e_str, now=now)
-            if interval:
-                bucket, is_intern, conf = classify_bucket(line_clean)
-                parts = [p.strip() for p in line_clean.split("|") if p.strip()]
-                title = parts[0] if parts else line_clean
-                company = parts[1] if len(parts) > 1 else ""
-                entries.append(ExperienceEntry(
-                    title=title,
-                    company=company,
-                    start_date_str=s_str,
-                    end_date_str=e_str,
-                    interval=interval,
-                    bucket=bucket,
-                    is_internship=is_intern,
-                    confidence=conf,
-                    raw_text=line_clean,
-                ))
-                continue
+        if not matched:
+            continue
 
-        # Try YYYY Range
-        m_yr = RE_YEAR_RANGE.search(line_clean)
-        if m_yr:
-            s_str, e_str = m_yr.group(1), m_yr.group(2)
-            interval = parse_date_endpoints(s_str, e_str, now=now)
-            if interval:
-                bucket, is_intern, conf = classify_bucket(line_clean)
+        # Education filtering:
+        # If in an education section, or line contains degree/university words: skip
+        if current_section == "education" or EDU_LINE_PATTERN.search(line_clean):
+            continue
+
+        interval = parse_date_endpoints(s_str, e_str, now=now)
+        if not interval:
+            continue
+
+        is_date_only = _is_date_only_line(line_clean, match_text)
+
+        if is_date_only:
+            title, company = _extract_title_company_from_preceding_lines(lines, idx)
+            # If the inferred title or company has degree/university words, skip
+            if EDU_LINE_PATTERN.search(title) or EDU_LINE_PATTERN.search(company):
+                continue
+            if not title:
+                title = line_clean
+                company = ""
+            context = f"{title} | {company} | {line_clean}"
+        else:
+            if "|" in line_clean:
                 parts = [p.strip() for p in line_clean.split("|") if p.strip()]
                 title = parts[0] if parts else line_clean
                 company = parts[1] if len(parts) > 1 else ""
-                entries.append(ExperienceEntry(
-                    title=title,
-                    company=company,
-                    start_date_str=s_str,
-                    end_date_str=e_str,
-                    interval=interval,
-                    bucket=bucket,
-                    is_internship=is_intern,
-                    confidence=conf,
-                    raw_text=line_clean,
-                ))
-                continue
+            elif " at " in line_clean:
+                clean_no_date = line_clean.replace(match_text, "").strip(" -–—,()")
+                if " at " in clean_no_date:
+                    parts = clean_no_date.split(" at ", 1)
+                    title = parts[0].strip()
+                    company = parts[1].strip()
+                else:
+                    title = clean_no_date or line_clean
+                    company = ""
+            else:
+                title = line_clean
+                company = ""
+            context = line_clean
+
+        bucket, is_intern, conf = classify_bucket(context)
+        entries.append(ExperienceEntry(
+            title=title,
+            company=company,
+            start_date_str=s_str,
+            end_date_str=e_str,
+            interval=interval,
+            bucket=bucket,
+            is_internship=is_intern,
+            confidence=conf,
+            raw_text=line_clean,
+        ))
 
     # Step 2: Separate entries by bucket and merge overlapping ranges
     prof_intervals = [e.interval for e in entries if e.bucket == "professional" and e.interval]
