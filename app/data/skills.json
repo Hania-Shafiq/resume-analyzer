@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "Canonical skill taxonomy for Resume Analyzer. Each key is the canonical (preferred) name. 'aliases' are alternative surface forms that map to the same canonical name.",
-    "total_skills": 250,
+    "total_skills": 198,
     "categories": [
       "programming",
       "databases",
@@ -42,7 +42,9 @@
       "vba": { "aliases": ["visual basic for applications"] },
       "sql": { "aliases": ["structured query language"] },
       "pl/sql": { "aliases": ["plsql"] },
-      "t-sql": { "aliases": ["tsql", "transact-sql"] }
+      "t-sql": { "aliases": ["tsql", "transact-sql"] },
+      "polars": { "aliases": ["polars dataframe"] },
+      "pydantic": { "aliases": ["pydantic v2"] }
     },
     "databases": {
       "postgresql": { "aliases": ["postgres", "pg", "psql"] },
@@ -64,7 +66,15 @@
       "hive": { "aliases": ["apache hive"] },
       "hbase": { "aliases": ["apache hbase"] },
       "clickhouse": { "aliases": [] },
-      "influxdb": { "aliases": [] }
+      "influxdb": { "aliases": [] },
+      "pinecone": { "aliases": ["pinecone vector db", "pinecone db"] },
+      "weaviate": { "aliases": ["weaviate vector db"] },
+      "qdrant": { "aliases": ["qdrant vector db"] },
+      "chroma": { "aliases": ["chromadb", "chroma db"] },
+      "milvus": { "aliases": ["milvus db"] },
+      "supabase": { "aliases": ["supabase db"] },
+      "duckdb": { "aliases": ["duck db"] },
+      "prisma": { "aliases": ["prisma orm"] }
     },
     "cloud": {
       "aws": { "aliases": ["amazon web services", "amazon aws"] },
@@ -120,7 +130,15 @@
       "model deployment": { "aliases": ["ml deployment", "model serving"] },
       "a/b testing": { "aliases": ["ab testing", "split testing"] },
       "time series": { "aliases": ["time series analysis", "forecasting"] },
-      "recommendation system": { "aliases": ["recommender system", "collaborative filtering"] }
+      "recommendation system": { "aliases": ["recommender system", "collaborative filtering"] },
+      "langchain": { "aliases": ["lang chain"] },
+      "llamaindex": { "aliases": ["llama index", "gpt index"] },
+      "vllm": { "aliases": ["v-llm"] },
+      "ollama": { "aliases": [] },
+      "triton": { "aliases": ["triton inference server"] },
+      "onnx": { "aliases": ["onnx runtime"] },
+      "deepspeed": { "aliases": ["deep speed"] },
+      "ray": { "aliases": ["ray framework", "ray train", "ray tune"] }
     },
     "web": {
       "react": { "aliases": ["reactjs", "react.js"] },
@@ -146,7 +164,9 @@
       "tailwind": { "aliases": ["tailwindcss", "tailwind css"] },
       "webpack": { "aliases": [] },
       "vite": { "aliases": [] },
-      "streamlit": { "aliases": [] }
+      "streamlit": { "aliases": [] },
+      "astro": { "aliases": ["astro.build", "astrojs"] },
+      "htmx": { "aliases": [] }
     },
     "devops_tools": {
       "docker": { "aliases": ["docker container", "dockerfile"] },
@@ -184,7 +204,9 @@
       "swagger": { "aliases": ["openapi", "open api"] },
       "vs code": { "aliases": ["vscode", "visual studio code"] },
       "pycharm": { "aliases": [] },
-      "intellij": { "aliases": ["intellij idea"] }
+      "intellij": { "aliases": ["intellij idea"] },
+      "pulumi": { "aliases": [] },
+      "poetry": { "aliases": ["python poetry"] }
     },
     "soft_skills": {
       "communication": { "aliases": ["verbal communication", "written communication"] },

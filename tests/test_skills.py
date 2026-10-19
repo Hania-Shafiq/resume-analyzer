@@ -34,7 +34,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.skills import extract_skills, extract_education, extract_experience_years
+from app.skills import (
+    extract_skills,
+    extract_skills_with_context,
+    extract_education,
+    extract_experience_years,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +259,126 @@ class TestSkillCategory(unittest.TestCase):
         """Ensure unknown skills return None."""
         from app.skills import skill_category
         self.assertIsNone(skill_category("underwater_basket_weaving"))
+
+
+class TestExtractSkillsWithContext(unittest.TestCase):
+    """Tests for extract_skills_with_context() checking confidence and sentence evidence.
+
+    Includes 10 distinct context test sentences (5 high confidence, 5 low confidence)
+    covering patterns such as 'migrated away from X', 'moved off X', 'no experience with X',
+    'not familiar with X', 'interested in learning X', 'want to learn X', 'familiar with X',
+    'exposure to X'.
+    """
+
+    # --- 5 High Confidence Tests ---
+
+    def test_high_conf_1_architected_and_deployed(self):
+        """Sentence 1 (High): Microservices architecture with active tooling."""
+        text = "Architected and deployed microservices using Python and FastAPI."
+        result = extract_skills_with_context(text)
+        self.assertIn("python", result)
+        self.assertEqual(result["python"]["confidence"], "high")
+        self.assertEqual(result["python"]["evidence"], text)
+        self.assertIn("fastapi", result)
+        self.assertEqual(result["fastapi"]["confidence"], "high")
+
+    def test_high_conf_2_migration_to_cloud(self):
+        """Sentence 2 (High): Migration TO a platform denotes strong experience."""
+        text = "Led the migration of on-premise infrastructure to AWS."
+        result = extract_skills_with_context(text)
+        self.assertIn("aws", result)
+        self.assertEqual(result["aws"]["confidence"], "high")
+        self.assertEqual(result["aws"]["evidence"], text)
+
+    def test_high_conf_3_years_experience_react(self):
+        """Sentence 3 (High): Direct professional experience statement."""
+        text = "Over 4 years of hands-on experience building production web apps with React."
+        result = extract_skills_with_context(text)
+        self.assertIn("react", result)
+        self.assertEqual(result["react"]["confidence"], "high")
+        self.assertEqual(result["react"]["evidence"], text)
+
+    def test_high_conf_4_designed_database_schemas(self):
+        """Sentence 4 (High): Designing database schemas and queries."""
+        text = "Designed robust relational database schemas and complex queries in PostgreSQL."
+        result = extract_skills_with_context(text)
+        self.assertIn("postgresql", result)
+        self.assertEqual(result["postgresql"]["confidence"], "high")
+        self.assertEqual(result["postgresql"]["evidence"], text)
+
+    def test_high_conf_5_optimized_pipeline(self):
+        """Sentence 5 (High): Performance optimization in deep learning."""
+        text = "Optimized deep learning model training pipelines using PyTorch."
+        result = extract_skills_with_context(text)
+        self.assertIn("pytorch", result)
+        self.assertEqual(result["pytorch"]["confidence"], "high")
+        self.assertIn("deep learning", result)
+        self.assertEqual(result["deep learning"]["confidence"], "high")
+
+    # --- 5 Low Confidence Tests ---
+
+    def test_low_conf_1_migrated_away_from(self):
+        """Sentence 6 (Low): 'migrated away from X' denotes legacy/dropped skill."""
+        text = "We migrated away from Java in favor of Go."
+        result = extract_skills_with_context(text)
+        self.assertIn("java", result)
+        self.assertEqual(result["java"]["confidence"], "low")
+        self.assertEqual(result["java"]["evidence"], text)
+        # Contrastive target should be high confidence
+        self.assertIn("go", result)
+        self.assertEqual(result["go"]["confidence"], "high")
+
+    def test_low_conf_2_moved_off(self):
+        """Sentence 7 (Low): 'moved off X' denotes abandoned skill."""
+        text = "Our infrastructure team moved off MySQL last year."
+        result = extract_skills_with_context(text)
+        self.assertIn("mysql", result)
+        self.assertEqual(result["mysql"]["confidence"], "low")
+        self.assertEqual(result["mysql"]["evidence"], text)
+
+    def test_low_conf_3_no_experience_with(self):
+        """Sentence 8 (Low): 'no experience with X' denotes explicit lack of skill."""
+        text = "I currently have no experience with Rust."
+        result = extract_skills_with_context(text)
+        self.assertIn("rust", result)
+        self.assertEqual(result["rust"]["confidence"], "low")
+        self.assertEqual(result["rust"]["evidence"], text)
+
+    def test_low_conf_4_not_familiar_with(self):
+        """Sentence 9 (Low): 'not familiar with X' denotes lack of proficiency."""
+        text = "Currently not familiar with GraphQL but eager to expand my stack."
+        result = extract_skills_with_context(text)
+        self.assertIn("graphql", result)
+        self.assertEqual(result["graphql"]["confidence"], "low")
+        self.assertEqual(result["graphql"]["evidence"], text)
+
+    def test_low_conf_5_interested_in_learning(self):
+        """Sentence 10 (Low): 'interested in learning X' indicates aspirational skill."""
+        text = "Interested in learning LangChain for LLM agent workflows."
+        result = extract_skills_with_context(text)
+        self.assertIn("langchain", result)
+        self.assertEqual(result["langchain"]["confidence"], "low")
+        self.assertEqual(result["langchain"]["evidence"], text)
+
+    # Additional patterns specified in requirements
+    def test_additional_low_conf_patterns(self):
+        """Verify additional low confidence patterns: familiar with, exposure to, want/plan to learn."""
+        s1 = "Familiar with Docker and Kubernetes."
+        r1 = extract_skills_with_context(s1)
+        self.assertEqual(r1["docker"]["confidence"], "low")
+        self.assertEqual(r1["kubernetes"]["confidence"], "low")
+
+        s2 = "Had limited exposure to Terraform during an academic project."
+        r2 = extract_skills_with_context(s2)
+        self.assertEqual(r2["terraform"]["confidence"], "low")
+
+        s3 = "Want to learn Next.js."
+        r3 = extract_skills_with_context(s3)
+        self.assertEqual(r3["next.js"]["confidence"], "low")
+
+        s4 = "I plan to learn Kotlin next year."
+        r4 = extract_skills_with_context(s4)
+        self.assertEqual(r4["kotlin"]["confidence"], "low")
 
 
 if __name__ == "__main__":

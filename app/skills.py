@@ -153,6 +153,121 @@ def extract_skills(text: str) -> list[str]:
     return results
 
 
+LOW_CONFIDENCE_PATTERNS = [
+    r"migrat(?:ed|ing)?\s+away\s+from",
+    r"mov(?:ed|ing)?\s+off",
+    r"no\s+experience\s+(?:with|in)",
+    r"not\s+familiar\s+with",
+    r"unfamiliar\s+with",
+    r"want(?:s|ed)?\s+to\s+learn",
+    r"plan(?:s|ned|ning)?\s+to\s+learn",
+    r"interested\s+in\s+learning",
+    r"interest\s+in\s+learning",
+    r"familiar\s+with",
+    r"familiarity\s+with",
+    r"exposure\s+to",
+    r"limited\s+exposure\s+to",
+    r"basic\s+knowledge\s+of",
+    r"looking\s+to\s+learn",
+    r"hope\s+to\s+learn",
+    r"hoping\s+to\s+learn",
+]
+
+_LOW_CONF_RE = re.compile(
+    r"\b(?:" + "|".join(LOW_CONFIDENCE_PATTERNS) + r")\b",
+    re.IGNORECASE,
+)
+
+_CONTRAST_RE = re.compile(
+    r"\b(?:but|however|whereas|although|in\s+favor\s+of|switched\s+to|migrated\s+to|moving\s+to|rather\s+than)\b",
+    re.IGNORECASE,
+)
+
+
+def extract_skills_with_context(text: str) -> dict[str, dict[str, str]]:
+    """Extract canonical skills from *text* with confidence and sentence evidence.
+
+    Uses spaCy sentence segmentation to evaluate the context around each match.
+    Skills matching low-confidence indicators (e.g. 'migrated away from X',
+    'moved off X', 'no experience with X', 'want to learn X') are tagged with
+    confidence='low', otherwise confidence='high'.
+
+    Parameters
+    ----------
+    text : str
+        Cleaned resume or job-description text.
+
+    Returns
+    -------
+    dict[str, dict[str, str]]
+        Mapping of canonical_skill -> {"confidence": "high" | "low", "evidence": <sentence>}
+    """
+    if not isinstance(text, str):
+        raise TypeError(f"Expected str, got {type(text).__name__}.")
+    if not text.strip():
+        raise ValueError("text must not be empty.")
+
+    nlp, matcher = _load_resources()
+
+    # Process with pipeline for sentence splitting
+    doc = nlp(text)
+    matches = matcher(doc)
+
+    results: dict[str, dict[str, str]] = {}
+
+    for _match_id, start, end in matches:
+        span = doc[start:end]
+        surface_form = span.text.lower()
+        canonical = _alias_to_canonical.get(surface_form)
+        if not canonical:
+            continue
+
+        sent = span.sent
+        sent_text = sent.text.strip()
+
+        # Relative character offsets within the sentence
+        span_start_in_sent = span.start_char - sent.start_char
+        span_end_in_sent = span.end_char - sent.start_char
+
+        before_text = sent_text[:span_start_in_sent]
+        after_text = sent_text[span_end_in_sent:]
+
+        # Determine if context suggests low confidence
+        is_low = False
+
+        # 1. Check patterns in text preceding the skill
+        matches_before = list(_LOW_CONF_RE.finditer(before_text))
+        if matches_before:
+            last_match = matches_before[-1]
+            between = before_text[last_match.end():]
+            # If no contrastive phrase between pattern and skill, it applies
+            if not _CONTRAST_RE.search(between):
+                is_low = True
+
+        # 2. Check patterns immediately succeeding the skill (e.g., "X is a tool I want to learn")
+        if not is_low:
+            m_after = _LOW_CONF_RE.search(after_text)
+            if m_after:
+                between_after = after_text[:m_after.start()]
+                if len(between_after.split()) <= 6 and not _CONTRAST_RE.search(between_after):
+                    is_low = True
+
+        # 3. Whole sentence fallback if sentence contains low-conf phrase and only 1 clause
+        if not is_low and _LOW_CONF_RE.search(sent_text) and not _CONTRAST_RE.search(sent_text):
+            is_low = True
+
+        conf = "low" if is_low else "high"
+
+        if canonical not in results:
+            results[canonical] = {"confidence": conf, "evidence": sent_text}
+        else:
+            # If previously low but this occurrence is high, upgrade to high
+            if results[canonical]["confidence"] == "low" and conf == "high":
+                results[canonical] = {"confidence": "high", "evidence": sent_text}
+
+    return results
+
+
 def skill_category(canonical_name: str) -> str | None:
     """Return the category for a canonical skill name, or None if not found."""
     _load_resources()
