@@ -1,5 +1,20 @@
 # Evaluation and Ablation Notes: Match Scoring & Recency (Feature 6)
 
+## Skill extraction
+
+| Metric | Value |
+| :--- | ---: |
+| Resumes evaluated | 20 |
+| Total labeled skills | 129 |
+| Micro-averaged precision | 0.8543 |
+| Micro-averaged recall | 1.0000 |
+| Micro-averaged F1 | 0.9214 |
+| Macro-averaged precision | 0.8713 |
+| Macro-averaged recall | 1.0000 |
+| Macro-averaged F1 | 0.9262 |
+
+---
+
 ## 1. Document Scope & Status
 
 - **Feature**: Multi-Modal Composite Scoring Engine with Recency (Feature 6)
