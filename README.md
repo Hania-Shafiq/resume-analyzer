@@ -272,6 +272,84 @@ Example response (values are illustrative):
 | `503` | Model not trained yet; run `notebooks/03_job_classifier.ipynb` |
 
 > **Windows tip:** quoting JSON in `cmd.exe` is awkward. Use the Swagger UI at `http://127.0.0.1:8000/docs` instead.
+---
+
+## Scoring modes
+
+Set with the `SCORING_MODE` environment variable (default `skills_only`). Weights come from `app/scoring.py`.
+
+| Mode | Formula | Needs semantic model |
+| :--- | :--- | :---: |
+| `skills_only` | 1.0 x skill coverage (0.80 required + 0.20 preferred; required only or preferred only if the other list is empty) | No |
+| `hybrid` | 0.70 skill + 0.30 semantic | Yes |
+| `proposal` | 0.40 skill + 0.40 semantic + 0.10 experience fit + 0.10 education fit | Yes |
+| `composite` | 0.40 skill (evidence-adjusted) + 0.30 semantic + 0.15 experience fit + 0.15 skill recency | Yes |
+
+- Semantic similarity is the cosine similarity from `all-MiniLM-L6-v2`, normalized between `SEMANTIC_SCORE_LOW` (0.15) and `SEMANTIC_SCORE_HIGH` (0.65).
+- If the semantic model cannot load, any non-`skills_only` mode falls back to `skills_only` and reports `scoring_mode: "skills_only"`.
+- In `composite` mode, `app/scoring.py` calls `app.evidence.skill_multipliers` when the module is importable: `high_depth` 1.0, `demonstrated` 0.85, `listed` 0.5. Recency uses a 3-year half-life, a 0.05 floor, and 0.5 for undated skills.
+
+## Environment variables
+
+| Variable | Used by | Purpose | Example |
+| :--- | :--- | :--- | :--- |
+| `SCORING_MODE` | API | One of `skills_only`, `hybrid`, `proposal`, `composite`. | `SCORING_MODE=skills_only` |
+| `API_BASE` | Dashboard | URL of the API (also read from Streamlit secrets; `BACKEND_URL` is an alias). Defaults to `http://127.0.0.1:8000`. | `API_BASE=https://resume-api.onrender.com` |
+| `ALLOWED_ORIGINS` | API | Comma-separated CORS origins. Unset or blank means `*` (local development). | `ALLOWED_ORIGINS=https://example.com,https://dashboard.example.com` |
+
+## API endpoints
+
+### POST /resume/evidence
+Classifies each skill as `high_depth`, `demonstrated` or `listed`. `skills` is optional.
+```bash
+curl -X POST http://127.0.0.1:8000/resume/evidence -H "Content-Type: application/json" \
+  -d '{"resume_text": "Skills: Python\nDeployed Docker containers, reducing build time by 30%.", "skills": ["Python", "Docker"]}'
+```
+Response: `{"docker": {"level": "high_depth", "multiplier": 1.0, "evidence": "...", "signals": ["action_verb:deploy", "metric:30%"]}, "python": {...}, "counts": {"high_depth": 1, "demonstrated": 0, "listed": 1}}`. Empty text returns 400.
+
+### POST /resume/overlay
+Multipart upload; returns page images (base64 PNG) plus normalized boxes in `required`, `preferred`, `semantic` and `unverified` categories.
+```bash
+curl -X POST http://127.0.0.1:8000/resume/overlay -F "file=@resume.pdf" \
+  -F "jd_text=Requirements: Python, Docker" -F "include_semantic=false"
+```
+400 for non-PDF/invalid PDF content, empty `jd_text`, or files over 5 MB. Scanned PDFs return `has_text_layer: false` and no boxes (no OCR).
+
+### POST /resume/star-rewrite
+Existing endpoint (`app/routers_star.py`).
+```bash
+curl -X POST http://127.0.0.1:8000/resume/star-rewrite -H "Content-Type: application/json" \
+  -d '{"resume_text": "EXPERIENCE\n- Responsible for deployment of the API.", "jd_text": "Requires Docker", "max_suggestions": 5}'
+```
+Returns `suggestions` (original, reasons, target_skill, skill_status, star, rewritten_bullet, placeholders, requires_real_experience, honesty_note), `counts` and `disclaimer`.
+
+### POST /resume/anonymize
+**Not present in this repository's backend at the time of writing.** The dashboard expects `{"resume_text": "..."}` and reads `redacted_text`, `redaction_counts` and `residual_flags` from the response; a 404 shows "Feature not available on this server".
+```bash
+curl -X POST http://127.0.0.1:8000/resume/anonymize -H "Content-Type: application/json" -d '{"resume_text": "..."}'
+```
+
+### POST /resume/dossier
+**Not present in this repository's backend at the time of writing.** The dashboard sends `resume_text` plus the job description (`jd_text`/`job_description`) and offers the returned JSON for download as JSON and TXT (obvious PII keys are removed client-side). A 404 shows "Feature not available on this server".
+```bash
+curl -X POST http://127.0.0.1:8000/resume/dossier -H "Content-Type: application/json" -d '{"resume_text": "...", "jd_text": "..."}'
+```
+
+## Deploying on Render and Streamlit Cloud
+
+**API (Render web service)**
+- Build command: `pip install -r requirements-api.txt && python -m spacy download en_core_web_sm`
+- Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Environment: `SCORING_MODE=skills_only`, `ALLOWED_ORIGINS=https://<your-dashboard>.streamlit.app`
+- For `hybrid`/`proposal`/`composite`, also run `pip install -r requirements-semantic.txt` (large; needs more RAM than most free tiers).
+
+**Dashboard (Streamlit Cloud)**
+- Main file: `dashboard/app.py`. It only needs `streamlit` and `requests`; it never imports torch or sentence-transformers.
+- Add `API_BASE = "https://<your-api>.onrender.com"` in the app's Secrets (or as an environment variable).
+
+**How they communicate:** the dashboard calls the API over HTTPS using `API_BASE`; the API's CORS policy must list the dashboard origin in `ALLOWED_ORIGINS`.
+
+**Cold-start retries:** free-tier APIs sleep. The dashboard health check makes up to 6 attempts (8 s timeout each, waiting 2, 4, 6, 8, 10 s between them) and shows "Waking up the analysis server, this can take up to a minute". "API unavailable" appears only after the final failed attempt. First requests to `/resume/upload`, `/match` and `/resume/overlay` use a 60 s timeout.
 
 ---
 

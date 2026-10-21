@@ -1,0 +1,12 @@
+# API runtime for SCORING_MODE=skills_only (no torch / sentence-transformers).
+# After installing, also run:  python -m spacy download en_core_web_sm
+fastapi>=0.110.0
+uvicorn>=0.28.0
+python-multipart>=0.0.9
+pydantic>=2.7.0
+pymupdf>=1.24.0
+python-docx>=1.1.0
+spacy>=3.7.0
+scikit-learn>=1.4.0
+joblib>=1.3.0
+numpy>=1.24.0
