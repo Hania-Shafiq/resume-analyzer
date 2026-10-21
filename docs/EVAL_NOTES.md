@@ -1,5 +1,11 @@
-# Evaluation and Ablation Notes: Match Scoring & Recency (Feature 6)
+# Evaluation and Ablation Notes
 
+**External role-classifier dataset**
+- **Source**: Snehaan Bhawal — *Resume Dataset* (LiveCareer resume examples), distributed on [Kaggle](https://www.kaggle.com/datasets/snehaanbhawal/resume-dataset) and mirrored as Hugging Face `opensporks/resumes`.
+- **Licence**: CC0 1.0 (Public Domain).
+- **Local path**: `data/external/Resume.csv` (columns: `ID`, `Resume_str`, `Resume_html`, `Category`).
+
+---
 ## Skill extraction
 
 | Metric | Value |
@@ -14,6 +20,143 @@
 | Macro-averaged F1 | 0.9262 |
 
 ---
+
+## Role classifier
+
+Evaluation of TF-IDF + Logistic Regression vs MiniLM (`all-MiniLM-L6-v2`) + Logistic Regression
+on the external LiveCareer resume dataset (`data/external/Resume.csv`).
+Near-duplicates (TF-IDF cosine > 0.95) were collapsed to one row per group;
+train/test and CV use stratified **group-aware** folds so residual groups never straddle splits.
+Uncertainty rule: top probability < 0.35 → `uncertain`.
+
+### Cleaning
+
+| Step | Count |
+| :--- | ---: |
+| Non-empty rows after light_clean | 2483 |
+| Exact duplicate texts dropped | 2 |
+| Near-duplicate extras dropped (cosine > 0.95) | 7 |
+| Rows after deduplication | 2474 |
+
+#### Class counts after deduplication
+
+| Class | Count |
+| :--- | ---: |
+| BUSINESS-DEVELOPMENT | 119 |
+| INFORMATION-TECHNOLOGY | 119 |
+| ACCOUNTANT | 118 |
+| ADVOCATE | 118 |
+| CHEF | 117 |
+| FINANCE | 117 |
+| FITNESS | 117 |
+| AVIATION | 116 |
+| ENGINEERING | 116 |
+| BANKING | 115 |
+| CONSULTANT | 115 |
+| SALES | 115 |
+| HEALTHCARE | 114 |
+| CONSTRUCTION | 112 |
+| PUBLIC-RELATIONS | 111 |
+| HR | 110 |
+| DESIGNER | 107 |
+| ARTS | 103 |
+| TEACHER | 102 |
+| APPAREL | 97 |
+| DIGITAL-MEDIA | 96 |
+| AGRICULTURE | 62 |
+| AUTOMOBILE | 36 |
+| BPO | 22 |
+
+### Experiment A — original cleaned text
+
+| Model | Accuracy | Macro-F1 | Weighted-F1 | 5-fold CV Macro-F1 |
+| :--- | ---: | ---: | ---: | ---: |
+| TF-IDF + Logistic Regression | 0.6646 | 0.6142 | 0.6496 | 0.6102 |
+| MiniLM + Logistic Regression | 0.7091 | 0.6521 | 0.7010 | 0.6774 |
+
+#### Per-class precision / recall (best original model: MiniLM embeddings + Logistic Regression)
+
+| Class | Precision | Recall | Support |
+| :--- | ---: | ---: | ---: |
+| ACCOUNTANT | 0.8571 | 1.0000 | 24 |
+| ADVOCATE | 0.7059 | 0.5217 | 23 |
+| AGRICULTURE | 0.2857 | 0.3077 | 13 |
+| APPAREL | 0.5333 | 0.4211 | 19 |
+| ARTS | 0.5333 | 0.3810 | 21 |
+| AUTOMOBILE | 0.1667 | 0.1429 | 7 |
+| AVIATION | 0.6667 | 0.5217 | 23 |
+| BANKING | 0.5909 | 0.5652 | 23 |
+| BPO | 0.0000 | 0.0000 | 4 |
+| BUSINESS-DEVELOPMENT | 0.9130 | 0.8750 | 24 |
+| CHEF | 0.9500 | 0.7917 | 24 |
+| CONSTRUCTION | 0.8696 | 0.8696 | 23 |
+| CONSULTANT | 0.6522 | 0.6522 | 23 |
+| DESIGNER | 0.9474 | 0.8571 | 21 |
+| DIGITAL-MEDIA | 0.5484 | 0.8947 | 19 |
+| ENGINEERING | 0.7419 | 1.0000 | 23 |
+| FINANCE | 0.8696 | 0.8696 | 23 |
+| FITNESS | 0.6471 | 0.4583 | 24 |
+| HEALTHCARE | 0.5172 | 0.6522 | 23 |
+| HR | 0.8333 | 0.9091 | 22 |
+| INFORMATION-TECHNOLOGY | 0.7083 | 0.7083 | 24 |
+| PUBLIC-RELATIONS | 0.7037 | 0.8636 | 22 |
+| SALES | 0.6957 | 0.6957 | 23 |
+| TEACHER | 0.8182 | 0.9000 | 20 |
+
+Confusion-matrix heatmap at `scripts/artifacts/role_classifier_confusion.png` (true rows × predicted columns for **MiniLM embeddings + Logistic Regression**, original text).
+
+**Saved artefact** `app/models/job_classifier_v2.joblib`: MiniLM embeddings + Logistic Regression (kind=`embedding`), trained on all 2474 cleaned resumes. MiniLM vectors used **clipped single-pass** encoding (`embedding_mode=clipped_single_pass`); this differs from sentence-averaged `embed_resumes()` in `recommend_roles()`, so reload with the same clipped encoder (`scripts/evaluate_role_classifier.embed_documents`) for scores that match this evaluation. The original `app/models/job_classifier.joblib` was not modified.
+
+Scores on this external set are **not** suspiciously high (best ~71% accuracy / ~0.65 macro-F1). The leakage ablation drops macro-F1 by roughly 0.08–0.20, so role-title words help but do not fully explain performance. `tests/eval/resumes/` are mostly tech/product profiles and are **out-of-distribution** relative to LiveCareer category folders — treat those top-3 lists as a smoke test, not as ground-truth role labels.
+
+### Experiment B — role-title words removed (label-leakage ablation)
+
+Tokens derived from every class name (plus common aliases) are stripped from the resume text
+before vectorisation / embedding so the model cannot rely on the literal role title.
+
+| Model | Accuracy | Macro-F1 | Weighted-F1 | 5-fold CV Macro-F1 |
+| :--- | ---: | ---: | ---: | ---: |
+| TF-IDF + Logistic Regression | 0.5737 | 0.5337 | 0.5624 | 0.5246 |
+| MiniLM + Logistic Regression | 0.4909 | 0.4509 | 0.4867 | 0.4752 |
+
+### Uncertainty rule (threshold = 0.35)
+
+Applied to the held-out test set of the best original-text model (**MiniLM embeddings + Logistic Regression**).
+
+| Metric | Value |
+| :--- | ---: |
+| Test resumes | 495 |
+| Below threshold (`uncertain`) | 77 (15.6%) |
+| Confident predictions | 418 |
+| Accuracy on confident subset | 0.7871 |
+
+### Held-out eval resumes (`tests/eval/resumes/`)
+
+Top-3 role probabilities from the saved best model (`app/models/job_classifier_v2.joblib`).
+Decision is `uncertain` when the top probability is below 0.35.
+
+| Resume | #1 | P1 | #2 | P2 | #3 | P3 | Decision |
+| :--- | :--- | ---: | :--- | ---: | :--- | ---: | :--- |
+| resume_001_aisha_patel.pdf | AGRICULTURE | 0.383 | ENGINEERING | 0.222 | DIGITAL-MEDIA | 0.089 | AGRICULTURE |
+| resume_002_james_chen.pdf | ENGINEERING | 0.344 | CHEF | 0.134 | AVIATION | 0.105 | uncertain |
+| resume_003_maria_garcia.pdf | DESIGNER | 0.250 | DIGITAL-MEDIA | 0.220 | AGRICULTURE | 0.207 | uncertain |
+| resume_004_david_kim.pdf | ENGINEERING | 0.330 | AGRICULTURE | 0.155 | INFORMATION-TECHNOLOGY | 0.132 | uncertain |
+| resume_005_sarah_johnson.pdf | AGRICULTURE | 0.712 | DIGITAL-MEDIA | 0.077 | ADVOCATE | 0.042 | AGRICULTURE |
+| resume_006_omar_hassan.pdf | ENGINEERING | 0.513 | DIGITAL-MEDIA | 0.219 | INFORMATION-TECHNOLOGY | 0.136 | ENGINEERING |
+| resume_007_emma_wilson.pdf | ENGINEERING | 0.450 | AGRICULTURE | 0.150 | DIGITAL-MEDIA | 0.074 | ENGINEERING |
+| resume_008_raj_patel.pdf | AGRICULTURE | 0.375 | INFORMATION-TECHNOLOGY | 0.196 | DIGITAL-MEDIA | 0.146 | AGRICULTURE |
+| resume_009_lisa_zhang.docx | ENGINEERING | 0.327 | CHEF | 0.191 | AGRICULTURE | 0.119 | uncertain |
+| resume_010_carlos_rodriguez.docx | ENGINEERING | 0.320 | DIGITAL-MEDIA | 0.301 | AGRICULTURE | 0.099 | uncertain |
+| resume_011_nina_petrov.docx | AGRICULTURE | 0.589 | DIGITAL-MEDIA | 0.155 | ADVOCATE | 0.048 | AGRICULTURE |
+| resume_012_ahmed_ali.docx | AGRICULTURE | 0.395 | DIGITAL-MEDIA | 0.101 | ADVOCATE | 0.099 | AGRICULTURE |
+| resume_013_yuki_tanaka.docx | ENGINEERING | 0.406 | INFORMATION-TECHNOLOGY | 0.198 | AGRICULTURE | 0.141 | ENGINEERING |
+| resume_014_priya_sharma.docx | ENGINEERING | 0.380 | APPAREL | 0.218 | AGRICULTURE | 0.059 | ENGINEERING |
+| resume_015_michael_brown.docx | INFORMATION-TECHNOLOGY | 0.363 | DIGITAL-MEDIA | 0.277 | AGRICULTURE | 0.216 | INFORMATION-TECHNOLOGY |
+| resume_016_fatima_khan.docx | AGRICULTURE | 0.516 | CONSULTANT | 0.160 | DIGITAL-MEDIA | 0.121 | AGRICULTURE |
+| resume_017_alex_murphy.txt | AGRICULTURE | 0.353 | ENGINEERING | 0.181 | AVIATION | 0.082 | AGRICULTURE |
+| resume_018_sofia_costa.txt | AGRICULTURE | 0.403 | ENGINEERING | 0.127 | AVIATION | 0.094 | AGRICULTURE |
+| resume_019_kenji_watanabe.txt | DIGITAL-MEDIA | 0.583 | AGRICULTURE | 0.108 | INFORMATION-TECHNOLOGY | 0.059 | DIGITAL-MEDIA |
+| resume_020_grace_okonkwo.txt | DIGITAL-MEDIA | 0.319 | ENGINEERING | 0.210 | AGRICULTURE | 0.184 | uncertain |
 
 ## 1. Document Scope & Status
 
