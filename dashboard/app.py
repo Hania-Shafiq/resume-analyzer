@@ -2,11 +2,14 @@
 
 import hashlib
 import html as _html
+import json
 import os
 from pathlib import Path
 import re
+import time
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 # ---------------------------------------------------------------------------
@@ -88,13 +91,36 @@ def _tags(skills: list[str], kind: str = "matched") -> str:
     return f'<div class="skill-pills-wrap">{tags_html}</div>'
 
 
-def _api_ok() -> bool:
-    """Return True if the FastAPI backend is reachable."""
+HEALTH_TIMEOUT = 8
+HEALTH_ATTEMPTS = 6
+HEALTH_WAITS = (2, 4, 6, 8, 10)  # seconds slept between attempts (sleeping free-tier hosts)
+
+
+def _api_ok_once() -> bool:
     try:
-        r = requests.get(f"{API_BASE}/", timeout=8)
-        return r.status_code == 200
+        return requests.get(f"{API_BASE}/", timeout=HEALTH_TIMEOUT).status_code == 200
     except Exception:
         return False
+
+
+def _api_ok() -> bool:
+    """Return True if the backend is reachable, retrying to survive cold starts."""
+    notice = None
+    for attempt in range(HEALTH_ATTEMPTS):
+        if _api_ok_once():
+            if notice is not None:
+                notice.empty()
+            return True
+        if attempt == HEALTH_ATTEMPTS - 1:
+            break
+        if notice is None:
+            notice = st.empty()
+        notice.info("Waking up the analysis server, this can take up to a minute")
+        time.sleep(HEALTH_WAITS[attempt])
+    if notice is None:
+        notice = st.empty()
+    notice.error("API unavailable")
+    return False
 
 # ---------------------------------------------------------------------------
 # Role recommendations — API call + card renderer
@@ -387,6 +413,357 @@ def _render_footer() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Dashboard feature helpers (evidence, overlay, STAR, anonymized screening)
+# ---------------------------------------------------------------------------
+# ---- Cold-start aware helpers ------------------------------------------------
+PII_KEYS = {"name", "candidate_name", "email", "phone", "links", "linkedin", "github", "filename"}
+CATEGORY_STYLE = {
+    "required": ("#10b981", "16,185,129"),
+    "preferred": ("#f59e0b", "245,158,11"),
+    "semantic": ("#3b82f6", "59,130,246"),
+    "unverified": ("#f43f5e", "244,63,94"),
+}
+
+
+def _call_api(method: str, path: str, *, json_body=None, params=None, data=None, files=None, timeout: int = 30):
+    """Return (payload, status_code, error). Never logs request bodies."""
+    try:
+        resp = requests.request(
+            method, f"{API_BASE}{path}", json=json_body, params=params,
+            data=data, files=files, timeout=timeout,
+        )
+    except requests.Timeout:
+        return None, None, "The request timed out. The server may be waking up; please try again."
+    except requests.ConnectionError:
+        return None, None, "Cannot connect to backend service. Please ensure the backend is running."
+    except requests.RequestException as exc:
+        return None, None, f"Request failed: {exc}"
+    if resp.status_code != 200:
+        return None, resp.status_code, _api_error_detail(resp)
+    try:
+        return resp.json(), 200, None
+    except ValueError:
+        return None, 200, "The backend returned an unexpected response."
+
+
+def _esc(value) -> str:
+    return _html.escape(str(value), quote=True)
+
+
+# ---- Scoring extras (only rendered when the API supplies the fields) ---------
+def _render_scoring_extras(m: dict) -> None:
+    badges = []
+    if m.get("scoring_mode"):
+        badges.append(f'<span class="score-verdict-badge neutral">Mode: {_esc(m["scoring_mode"])}</span>')
+    sem = m.get("semantic_similarity")
+    if isinstance(sem, (int, float)):
+        badges.append(f'<span class="score-verdict-badge strong">Semantic similarity: {sem * 100:.0f}%</span>')
+    if badges:
+        H('<div style="display:flex;gap:8px;flex-wrap:wrap;margin:0.75rem 0;">' + "".join(badges) + "</div>")
+
+    breakdown = m.get("score_breakdown")
+    if isinstance(breakdown, dict):
+        rows = []
+        for name, item in breakdown.items():
+            if not isinstance(item, dict) or "weight" not in item:
+                continue
+            val = item.get("value")
+            rows.append({
+                "Component": name.capitalize(),
+                "Value": f"{val:.2f}" if isinstance(val, (int, float)) else "n/a",
+                "Weight": f"{item.get('weight', 0):.2f}",
+                "Contribution": f"{item.get('weighted_contribution', 0):.3f}",
+            })
+        if rows:
+            H('<span class="section-label">SCORE BREAKDOWN</span>')
+            st.table(rows)
+
+    rec = m.get("skill_recency")
+    if isinstance(rec, dict) and rec:
+        rows, undated = [], False
+        for skill, info in sorted(rec.items(), key=lambda kv: -(kv[1].get("weight") or 0)):
+            year = info.get("last_used_year")
+            undated = undated or year is None
+            rows.append({
+                "Skill": skill,
+                "Last used": year if year is not None else "undated",
+                "Weight": f"{info.get('weight', 0):.2f}",
+            })
+        H('<span class="section-label">SKILL RECENCY</span>')
+        st.table(rows)
+        if undated:
+            st.caption("Undated skills (not tied to a dated role) receive a neutral recency weight of 0.5.")
+
+
+# ---- Evidence view -------------------------------------------------------------
+def _render_evidence_view(resume_text: str) -> None:
+    data, status, err = _call_api("POST", "/resume/evidence", json_body={"resume_text": resume_text}, timeout=30)
+    if status == 404:
+        st.info("Skill evidence is not available on this server.")
+        return
+    if err:
+        st.warning(f"Skill evidence unavailable: {err}")
+        return
+    items = {k: v for k, v in (data or {}).items() if k != "counts" and isinstance(v, dict) and "level" in v}
+    if not items:
+        return
+    counts = (data or {}).get("counts") or {}
+    for lvl in ("high_depth", "demonstrated", "listed"):
+        counts.setdefault(lvl, sum(1 for v in items.values() if v["level"] == lvl))
+    chips = []
+    for skill, info in items.items():
+        tip = _esc(info.get("evidence") or "Listed without supporting evidence")
+        if info["level"] == "high_depth":
+            chips.append(f'<span class="skill-pill matched" title="{tip}">&#9733; {_esc(skill)}</span>')
+        elif info["level"] == "demonstrated":
+            chips.append(f'<span class="skill-pill matched" title="{tip}">{_esc(skill)}</span>')
+        else:
+            chips.append(f'<span class="skill-pill missing" title="{tip}">{_esc(skill)}</span>')
+    H(f"""
+    <article class="bento-card fade-up-3" style="margin-top: 0.5rem;">
+    <span class="section-label">SKILL EVIDENCE</span>
+    <h2 class="card-title">Evidence Depth</h2>
+    <p style="font-size:0.82rem;color:var(--text-secondary);">
+    &#9733; High depth: {counts['high_depth']} &bull; Demonstrated: {counts['demonstrated']} &bull; Listed only: {counts['listed']}
+    </p>
+    <div class="skill-pills-wrap">{''.join(chips)}</div>
+    </article>
+    """)
+
+
+# ---- Identity (only when API provides it) ------------------------------------------
+def _render_identity(data: dict) -> None:
+    name, phone, links = data.get("candidate_name"), data.get("phone"), data.get("links") or {}
+    link_vals = [f"{k}: {v}" for k, v in links.items() if v] if isinstance(links, dict) else []
+    if not (name or phone or link_vals):
+        return
+    rows = []
+    if name:
+        rows.append(f"<div><strong>Candidate:</strong> {_esc(name)}</div>")
+    if phone:
+        rows.append(f"<div><strong>Phone:</strong> {_esc(phone)}</div>")
+    if link_vals:
+        rows.append("<div><strong>Links:</strong> " + " &bull; ".join(_esc(v) for v in link_vals) + "</div>")
+    H('<article class="bento-card fade-up-2" style="margin-top:0.5rem;">'
+      '<span class="section-label">CANDIDATE IDENTITY</span>' + "".join(rows) + "</article>")
+
+
+# ---- Overlay -------------------------------------------------------------------------
+def _overlay_page_html(page: dict, visible: set) -> str:
+    boxes = []
+    for b in page.get("boxes", []):
+        cat = b.get("category")
+        if cat not in visible or cat not in CATEGORY_STYLE:
+            continue
+        color, rgb = CATEGORY_STYLE[cat]
+        x0, y0, x1, y1 = b["bbox"]
+        tip = _esc(b.get("tooltip") or b.get("skill") or cat)
+        boxes.append(
+            f'<div title="{tip}" style="position:absolute;left:{x0 * 100:.3f}%;top:{y0 * 100:.3f}%;'
+            f'width:{(x1 - x0) * 100:.3f}%;height:{(y1 - y0) * 100:.3f}%;background:rgba({rgb},0.30);'
+            f'border:2px solid {color};box-sizing:border-box;cursor:help;"></div>'
+        )
+    return (
+        '<div style="position:relative;width:100%;line-height:0;">'
+        f'<img src="data:image/png;base64,{page["image_base64"]}" style="width:100%;display:block;" alt="Resume page"/>'
+        + "".join(boxes) + "</div>"
+    )
+
+
+def _render_overlay_tab() -> None:
+    H('<span class="section-label">RESUME PDF OVERLAY</span>')
+    pdf = st.file_uploader("Upload a PDF resume", type=["pdf"], key="overlay_pdf")
+    jd = st.text_area(
+        "Job description", value=st.session_state.get("jd_text", ""), height=160,
+        key="overlay_jd", placeholder="Paste the job description (or analyze one on the Job Description page)...",
+    )
+    include_sem = st.checkbox("Include semantic matches (needs the semantic model on the server)", key="overlay_sem")
+    if st.button("Build overlay", type="primary", key="overlay_run"):
+        if pdf is None or not jd.strip():
+            st.warning("Please upload a PDF resume and provide a job description.")
+        else:
+            with st.spinner("Building overlay..."):
+                data, status, err = _call_api(
+                    "POST", "/resume/overlay",
+                    files={"file": (pdf.name, pdf.getvalue(), "application/pdf")},
+                    data={"jd_text": jd, "include_semantic": str(include_sem).lower()},
+                    timeout=60,
+                )
+            if status == 404:
+                st.session_state.pop("overlay_result", None)
+                st.error("Overlay is not available on this server.")
+            elif err:
+                st.session_state.pop("overlay_result", None)
+                st.error(f"Overlay failed: {err}")
+            else:
+                st.session_state["overlay_result"] = data
+
+    res = st.session_state.get("overlay_result")
+    if not res:
+        return
+    if not res.get("has_text_layer", True):
+        st.info("This PDF looks scanned (no text layer), so no annotations could be drawn. Page images are shown.")
+    if res.get("semantic_unavailable"):
+        st.info("Semantic matching is unavailable on this server; showing skill annotations only.")
+
+    counts = res.get("counts", {})
+    legend = res.get("legend") or [{"category": c, "label": c.capitalize(), "color": CATEGORY_STYLE[c][0]} for c in CATEGORY_STYLE]
+    cols = st.columns(len(legend))
+    visible = set()
+    for col, item in zip(cols, legend):
+        cat = item.get("category")
+        with col:
+            H(f'<div style="font-size:12px;"><span style="display:inline-block;width:10px;height:10px;'
+              f'background:{_esc(item.get("color", "#999"))};border-radius:2px;margin-right:6px;"></span>'
+              f'{_esc(item.get("label", cat))} ({counts.get(cat, 0)})</div>')
+            if st.checkbox("Show", value=True, key=f"ov_show_{cat}"):
+                visible.add(cat)
+
+    pages = res.get("pages", [])
+    if not pages:
+        return
+    idx = 1
+    if len(pages) > 1:
+        idx = st.selectbox("Page", list(range(1, len(pages) + 1)), key="overlay_page")
+    page = pages[idx - 1]
+    ratio = (page.get("height") or 1) / (page.get("width") or 1)
+    components.html(_overlay_page_html(page, visible), height=int(900 * ratio) + 20, scrolling=True)
+
+
+# ---- STAR panel ----------------------------------------------------------------------
+def _resolve_resume_text(resume_text: str) -> str:
+    stored = st.session_state.get("full_resume_text") or st.session_state.get("resume_data", {}).get("extracted_text") or ""
+    preview = st.session_state.get("resume_data", {}).get("text_preview", "")
+    if stored and (resume_text == stored or (preview and resume_text == preview)
+                   or (resume_text.endswith("...") and stored.startswith(resume_text.rstrip(".").rstrip()))):
+        return stored
+    return resume_text if resume_text.strip() else stored
+
+
+def _highlight_placeholders(text: str) -> str:
+    out = _esc(text)
+    return re.sub(r"(\[[^\]]+\])", r'<mark style="background:rgba(245,158,11,0.3);color:#F59E0B;padding:0 3px;border-radius:3px;">\1</mark>', out)
+
+
+def _render_star_panel(resume_text: str, jd_text: str) -> None:
+    H('<span class="section-label">BULLET OPTIMIZER</span><h2 class="card-title">STAR bullet rewriting</h2>')
+    st.warning("Suggestions give structure only. Never invent experience, accomplishments, or metrics - "
+               "fill every placeholder with true facts, and only keep skills you have actually used.")
+    if st.button("Suggest stronger bullets", key="star_btn"):
+        if not resume_text.strip():
+            st.warning("Please provide resume text first.")
+        else:
+            payload = {"resume_text": resume_text, "max_suggestions": 5}
+            if jd_text.strip():
+                payload["jd_text"] = jd_text
+            with st.spinner("Analyzing bullets..."):
+                data, status, err = _call_api("POST", "/resume/star-rewrite", json_body=payload, timeout=30)
+            if status == 404:
+                st.info("Feature not available on this server")
+                st.session_state.pop("star_result", None)
+            elif err:
+                st.error(f"Bullet suggestions failed: {err}")
+                st.session_state.pop("star_result", None)
+            else:
+                st.session_state["star_result"] = data
+
+    res = st.session_state.get("star_result")
+    if not res:
+        return
+    suggestions = res.get("suggestions") or []
+    if not suggestions:
+        st.info("No weak bullets were found in the experience section.")
+        return
+    for i, s in enumerate(suggestions, start=1):
+        with st.expander(f"{i}. {s.get('original', '')[:90]}"):
+            star = s.get("star") or {}
+            st.markdown(f"**Original bullet:** {s.get('original', '')}")
+            st.markdown("**Reasons:** " + (", ".join(s.get("reasons") or []) or "n/a"))
+            st.markdown(f"**Target skill:** {s.get('target_skill') or 'none'}")
+            for label in ("situation", "task", "action", "result"):
+                st.markdown(f"**{label.capitalize()}:** {star.get(label, '')}")
+            H('<div style="margin-top:6px;"><strong>Rewritten bullet:</strong><br/>'
+              + _highlight_placeholders(s.get("rewritten_bullet", "")) + "</div>")
+            if s.get("requires_real_experience") is True:
+                H('<span class="score-verdict-badge partial" style="margin-top:8px;">&#9888; Only use if true</span>')
+                if s.get("honesty_note"):
+                    st.caption(s["honesty_note"])
+    if res.get("disclaimer"):
+        st.caption(res["disclaimer"])
+
+
+# ---- Anonymized screening ---------------------------------------------------------------
+def _strip_pii(obj):
+    if isinstance(obj, dict):
+        return {k: _strip_pii(v) for k, v in obj.items() if str(k).lower() not in PII_KEYS}
+    if isinstance(obj, list):
+        return [_strip_pii(v) for v in obj]
+    return obj
+
+
+def _dossier_text(d: dict) -> str:
+    for key in ("text", "dossier_text", "plain_text"):
+        if isinstance(d.get(key), str):
+            return d[key]
+    lines = []
+
+    def walk(v, indent=0):
+        pad = "  " * indent
+        if isinstance(v, dict):
+            for k, x in v.items():
+                if isinstance(x, (dict, list)):
+                    lines.append(f"{pad}{k}:")
+                    walk(x, indent + 1)
+                else:
+                    lines.append(f"{pad}{k}: {x}")
+        elif isinstance(v, list):
+            for x in v:
+                if isinstance(x, (dict, list)):
+                    walk(x, indent + 1)
+                else:
+                    lines.append(f"{pad}- {x}")
+
+    walk(d)
+    return "\n".join(lines)
+
+
+def _render_anonymized_view(resume_text: str) -> None:
+    jd = st.session_state.get("jd_text", "")
+    with st.spinner("Anonymizing resume..."):
+        anon, a_status, a_err = _call_api("POST", "/resume/anonymize", json_body={"resume_text": resume_text}, timeout=60)
+        dossier, d_status, d_err = _call_api(
+            "POST", "/resume/dossier",
+            json_body={"resume_text": resume_text, "jd_text": jd, "job_description": jd}, timeout=60,
+        )
+    H('<span class="section-label">ANONYMIZED SCREENING</span><h2 class="card-title">Redacted resume</h2>')
+    if a_status == 404:
+        st.info("Feature not available on this server")
+    elif a_err:
+        st.error(f"Anonymization failed: {a_err}")
+    elif isinstance(anon, dict):
+        red = next((anon[k] for k in ("redacted_text", "anonymized_text", "text") if isinstance(anon.get(k), str)), "")
+        st.text(red or "(no redacted text returned)")
+        counts = next((anon[k] for k in ("redaction_counts", "counts", "redactions") if isinstance(anon.get(k), dict)), None)
+        if counts:
+            st.table([{"Type": k, "Redactions": v} for k, v in counts.items()])
+        for flag in anon.get("residual_flags") or []:
+            st.warning(f"Residual flag: {flag}")
+    if d_status == 404:
+        st.info("Feature not available on this server")
+    elif d_err:
+        st.error(f"Dossier failed: {d_err}")
+    elif isinstance(dossier, dict):
+        clean = _strip_pii(dossier)
+        c1, c2 = st.columns(2)
+        with c1:
+            st.download_button("Download dossier (JSON)", data=json.dumps(clean, indent=2, ensure_ascii=False),
+                               file_name="dossier.json", mime="application/json", use_container_width=True)
+        with c2:
+            st.download_button("Download dossier (TXT)", data=_dossier_text(clean),
+                               file_name="dossier.txt", mime="text/plain", use_container_width=True)
+
+
+# ---------------------------------------------------------------------------
 # Sidebar — Clean Linear-style Navigation
 # ---------------------------------------------------------------------------
 alive = _api_ok()
@@ -620,6 +997,7 @@ elif page == "Upload Resume":
     </section>
     """)
 
+    anon_mode = st.toggle("Anonymized screening mode", key="anon_mode")
     uploaded = st.file_uploader(
         "Drop your resume here (PDF, DOC/DOCX, or TXT)",
         type=["pdf", "docx", "doc", "txt"],
@@ -632,7 +1010,7 @@ elif page == "Upload Resume":
                 resp = requests.post(
                     f"{API_BASE}/resume/upload",
                     files={"file": (uploaded.name, uploaded.getvalue(), uploaded.type)},
-                    timeout=30,
+                    timeout=60,
                 )
                 if resp.status_code == 200:
                     data = resp.json()
@@ -642,7 +1020,7 @@ elif page == "Upload Resume":
                     st.session_state["resume_text"] = full_text
                     st.session_state.pop("role_cache", None)
                     
-                    st.success(f"Parsed {uploaded.name} — {data['char_count']:,} characters processed.")
+                    st.success(f"Parsed {'resume' if anon_mode else uploaded.name} — {data['char_count']:,} characters processed.")
 
                     # Summary cards
                     m1, m2, m3, m4 = st.columns(4)
@@ -683,7 +1061,7 @@ elif page == "Upload Resume":
                         </article>
                         """)
                     with m4:
-                        single_email = data.get("email")
+                        single_email = None if anon_mode else data.get("email")
                         if single_email:
                             import urllib.parse
                             _s = urllib.parse.quote("Interview Opportunity / Job Application")
@@ -691,6 +1069,8 @@ elif page == "Upload Resume":
                             email_box = f'<a href="{_m_url}" target="_blank" style="color: var(--accent-emerald); text-decoration: none; word-break: break-all; font-weight: 500;">✉️ {single_email}</a>'
                         else:
                             email_box = '<span style="color: var(--text-tertiary);">Not detected</span>'
+                        if anon_mode:
+                            email_box = '<span style="color: var(--text-tertiary);">Hidden (anonymized)</span>'
                         H(f"""
                         <article class="bento-card fade-up-4">
                         <span class="section-label">CONTACT EMAIL</span>
@@ -710,11 +1090,17 @@ elif page == "Upload Resume":
                     </article>
                     """)
 
+                    if anon_mode:
+                        _render_anonymized_view(full_text)
+                    else:
+                        _render_identity(data)
+
                     # Role recommendations (own spinner + graceful error handling)
                     _render_role_recommendations(full_text)
 
-                    with st.expander("Document preview text"):
-                        st.text(data.get("extracted_text") or data["text_preview"])
+                    if not anon_mode:
+                        with st.expander("Document preview text"):
+                            st.text(data.get("extracted_text") or data["text_preview"])
 
                 else:
                     err_msg = resp.json().get("detail", resp.text) if resp.headers.get("content-type") == "application/json" else resp.text
@@ -841,6 +1227,15 @@ elif page == "Match & Analysis":
     </section>
     """)
 
+    _match_view = st.radio(
+        "Match view", ["Match & gap analysis", "Resume PDF overlay"],
+        horizontal=True, label_visibility="collapsed", key="match_view",
+    )
+    if _match_view == "Resume PDF overlay":
+        _render_overlay_tab()
+        _render_footer()
+        st.stop()
+
     col_l, col_r = st.columns(2)
     with col_l:
         H('<span class="section-label">CANDIDATE SOURCE</span>')
@@ -890,7 +1285,7 @@ elif page == "Match & Analysis":
                     match_resp = requests.post(
                         f"{API_BASE}/match",
                         json={"resume_text": analysis_resume_text, "job_description": jd_text},
-                        timeout=30,
+                        timeout=60,
                     )
                     gap_resp = requests.get(
                         f"{API_BASE}/skill-gap",
@@ -908,7 +1303,7 @@ elif page == "Match & Analysis":
                         g = gap_resp.json() if gap_resp.status_code == 200 else {}
                         r = rec_resp.json() if rec_resp.status_code == 200 else {}
 
-                        score = m["skill_overlap_score"]
+                        score = m["final_score"] if m.get("final_score") is not None else m["skill_overlap_score"]
                         req_matched = m.get("required_matched", [])
                         total_req = m.get("total_required", len(req_matched))
                         pref_matched = m.get("preferred_matched", [])
@@ -1004,6 +1399,9 @@ elif page == "Match & Analysis":
                             </article>
                             """)
 
+                        _render_scoring_extras(m)
+                        _render_evidence_view(analysis_resume_text)
+
                         # Role recommendations for the same resume text
                         _render_role_recommendations(analysis_resume_text)
 
@@ -1026,6 +1424,9 @@ elif page == "Match & Analysis":
                         st.error(f"Match API returned error {match_resp.status_code}: {match_resp.text}")
                 except requests.ConnectionError:
                     st.error("Cannot connect to backend service. Please ensure the backend is running.")
+
+    H('<div style="height: 1.5rem;"></div>')
+    _render_star_panel(_resolve_resume_text(resume_text), jd_text)
 
     _render_footer()
 
