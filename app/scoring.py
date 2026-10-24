@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Presets and Configuration
 # ---------------------------------------------------------------------------
 
-DEFAULT_SEMANTIC_LOW: float = 0.15
+DEFAULT_SEMANTIC_LOW: float = 0.20
 DEFAULT_SEMANTIC_HIGH: float = 0.65
 
 DEFAULT_EVIDENCE_MULTIPLIERS: dict[str, float] = {
@@ -266,7 +266,7 @@ def compute_scores(
     mode : {"skills_only", "hybrid", "proposal"}, optional
         Scoring preset. Defaults to env var SCORING_MODE or "skills_only".
     semantic_low : float, optional
-        Lower bound for cosine similarity normalization (default: 0.15).
+        Lower bound for cosine similarity normalization (default: 0.20).
     semantic_high : float, optional
         Upper bound for cosine similarity normalization (default: 0.65).
 
@@ -440,6 +440,7 @@ def compute_scores(
             active_mode = "skills_only"
             weights = SCORING_CONFIG["skills_only"].copy()
             semantic_similarity_val = None
+            skill_coverage_val = plain_coverage
 
     # ── 6. Skill Recency Component (Lazy Loaded for Composite Mode) ─────────
     skill_recency_table: dict[str, dict[str, Any]] | None = None

@@ -41,10 +41,14 @@ class TestScoringConfigWeights:
         assert "hybrid" in SCORING_CONFIG
         assert "proposal" in SCORING_CONFIG
 
-    @pytest.mark.parametrize("preset", ["skills_only", "hybrid", "proposal"])
+    @pytest.mark.parametrize("preset", ["skills_only", "hybrid", "proposal", "composite"])
     def test_weights_sum_to_one(self, preset: str):
         weights = SCORING_CONFIG[preset]
         assert sum(weights.values()) == pytest.approx(1.0, rel=1e-5)
+
+    def test_tuned_default_anchors(self):
+        assert DEFAULT_SEMANTIC_LOW == 0.20
+        assert DEFAULT_SEMANTIC_HIGH == 0.65
 
     def test_preset_exact_ratios(self):
         assert SCORING_CONFIG["skills_only"]["skill"] == 1.0
@@ -722,8 +726,10 @@ class TestCompositeScoringMode:
         assert res["semantic_similarity"] is None
         assert res["final_score"] == pytest.approx(1.0, abs=1e-4)
 
-    def test_composite_evidence_unavailable_note_added(self):
+    def test_composite_evidence_unavailable_note_added(self, monkeypatch):
         """When app.evidence is not available, notes indicate evidence_unavailable."""
+        import sys
+        monkeypatch.setitem(sys.modules, "app.evidence", None)
         jd_text = "Requirements:\n- Python\n"
         jd_analysis = analyze_job_description(jd_text)
         resume_text = "Python engineer"
