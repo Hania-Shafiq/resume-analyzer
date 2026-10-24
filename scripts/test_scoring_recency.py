@@ -1,4 +1,4 @@
-"""Manual verification script for Member 1 (Scoring Lead — Feature 6).
+"""Manual verification script for scoring engine and recency decay.
 
 Demonstrates:
 1. Tuned semantic anchors from docs/EVAL_NOTES.md.
@@ -24,7 +24,7 @@ from app.scoring import (
 
 def main():
     print("=" * 65)
-    print("  MEMBER 1 MANUAL VERIFICATION: SCORING & RECENCY (FEATURE 6)")
+    print("  SCORING ENGINE & RECENCY DECAY VERIFICATION")
     print("=" * 65)
 
     # 1. Tuned Anchors

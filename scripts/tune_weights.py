@@ -528,7 +528,7 @@ def append_tuning_and_interpretation_to_eval_notes(
         "captures contextual competence, domain depth, and synonymous responsibilities that keyword exact-matching misses, "
         "without suffering from keyword-stuffing dilution.",
         "",
-        "### D. Recommended Values for Production Implementation (Member 1)",
+        "### D. Recommended Values for Production Implementation",
         "",
         "```python",
         "# app/scoring.py",

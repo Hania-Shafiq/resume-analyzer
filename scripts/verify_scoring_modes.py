@@ -6,7 +6,7 @@ from app.scoring import compute_scores, SCORING_CONFIG, DEFAULT_SEMANTIC_LOW, DE
 from app.skills import analyze_job_description, extract_skills
 
 print("=" * 80)
-print("  MEMBER 1 VERIFICATION: ALL 4 SCORING MODES & CRITERIA COMPARISON")
+print("  VERIFICATION: ALL 4 SCORING MODES & CRITERIA COMPARISON")
 print("=" * 80)
 
 # Standard Benchmark JD
@@ -165,5 +165,5 @@ assert score_rec > score_leg, "Recent candidate must score higher in composite m
 print("=> PASS: Recently used skills receive higher credit than older skills!")
 
 print("\n" + "=" * 80)
-print("  ALL CHECKLIST ITEMS VERIFIED (100% GREEN)")
+print("  ALL VERIFICATION CHECKS PASSED (100% GREEN)")
 print("=" * 80)
