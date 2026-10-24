@@ -308,6 +308,28 @@ def match_resume_to_jd(body: MatchRequest):
         mode=body.mode if getattr(body, "mode", None) else None,
     )
 
+    # Mandatory qualification eligibility evaluation (separated from weighted match score)
+    exp_required = jd_analysis.min_experience_years
+    exp_met = bool(exp_required is None or prof_years >= exp_required)
+    skills_met = (len(req_missing) == 0)
+
+    from app.scoring import extract_jd_required_degree_level, extract_candidate_degree_level
+    edu_rank_req = extract_jd_required_degree_level(jd_analysis)
+    edu_rank_cand = extract_candidate_degree_level(profile)
+    edu_met = bool(edu_rank_req == 0 or edu_rank_cand >= edu_rank_req)
+
+    mandatory_gaps: list[str] = []
+    if not exp_met and exp_required is not None:
+        mandatory_gaps.append(f"Experience deficit: {prof_years:.1f} yr(s) actual vs {exp_required} yr(s) required")
+    if not skills_met:
+        for sm in req_missing:
+            mandatory_gaps.append(f"Missing mandatory skill: {sm.title()}")
+    if not edu_met:
+        mandatory_gaps.append("Education: Candidate degree level does not meet stated minimum requirement")
+
+    is_eligible = exp_met and skills_met and edu_met
+    eligibility_status = "Meets All Mandatory Requirements" if is_eligible else "Does Not Meet All Mandatory Requirements"
+
     return {
         "skill_overlap_score":       scores["skill_overlap_score"],
         "final_score":               scores["final_score"],
@@ -327,7 +349,15 @@ def match_resume_to_jd(body: MatchRequest):
             "full_time_str": exp_summary.full_time_str,
             "internship_str": exp_summary.internship_str,
             "has_internships": exp_summary.has_internships,
-            "is_met": bool(jd_analysis.min_experience_years is None or prof_years >= jd_analysis.min_experience_years),
+            "is_met": exp_met,
+        },
+        "eligibility": {
+            "status": eligibility_status,
+            "is_eligible": is_eligible,
+            "mandatory_gaps": mandatory_gaps,
+            "experience_met": exp_met,
+            "skills_met": skills_met,
+            "education_met": edu_met,
         },
         "note":                      "Semantic, experience and education scoring planned for a future release.",
     }

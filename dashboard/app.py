@@ -269,24 +269,51 @@ def _render_top_bar(alive: bool) -> None:
 </header>""")
 
 
-def _render_score_ring(score: float, matched_req: int, total_req: int, matched_pref: int, total_pref: int) -> None:
-    """Render clean SVG circular progress ring with tabular numeral and verdict badge."""
+def _render_score_ring(
+    score: float,
+    verified_req: int,
+    total_req: int,
+    matched_pref: int,
+    total_pref: int,
+    unverified_req: int = 0,
+    is_eligible: bool = True,
+    eligibility_status: str = "Meets All Mandatory Requirements",
+    mandatory_gaps: list[str] | None = None,
+) -> None:
+    """Render clean SVG circular progress ring with tabular numeral, eligibility status, and gap notices."""
     pct = max(0, min(100, int(round(score * 100))))
     circumference = 339.292
     offset = circumference * (1.0 - (pct / 100.0))
 
     if pct >= 70:
         badge_cls = "strong"
-        verdict = "Strong match"
+        verdict = "High Weighted Score"
         ring_color = "#10B981"
     elif pct >= 40:
         badge_cls = "partial"
-        verdict = "Partial match"
+        verdict = "Moderate Weighted Score"
         ring_color = "#F59E0B"
     else:
         badge_cls = "weak"
-        verdict = "Weak match"
+        verdict = "Low Weighted Score"
         ring_color = "#F43F5E"
+
+    if is_eligible:
+        elig_badge = f'<div style="display:inline-flex;align-items:center;gap:6px;font-size:0.75rem;font-weight:700;padding:3px 10px;border-radius:999px;background:rgba(16,185,129,0.15);color:#10B981;border:1px solid rgba(16,185,129,0.3);margin-top:0.4rem;">&#10003; {_esc(eligibility_status)}</div>'
+    else:
+        elig_badge = f'<div style="display:inline-flex;align-items:center;gap:6px;font-size:0.75rem;font-weight:700;padding:3px 10px;border-radius:999px;background:rgba(244,63,94,0.15);color:#F43F5E;border:1px solid rgba(244,63,94,0.3);margin-top:0.4rem;">&#10007; {_esc(eligibility_status)}</div>'
+
+    gaps_html = ""
+    if mandatory_gaps and not is_eligible:
+        gap_items = "".join(f"<li style='margin-bottom:2px;'>{_esc(g)}</li>" for g in mandatory_gaps[:3])
+        gaps_html = f"""
+        <div style="margin-top: 0.65rem; padding: 6px 10px; border-radius: 6px; background: rgba(244, 63, 94, 0.08); border: 1px solid rgba(244, 63, 94, 0.2); font-size: 0.74rem; color: var(--semantic-rose); text-align: left;">
+          <strong style="display: block; margin-bottom: 2px;">Mandatory Shortfalls:</strong>
+          <ul style="margin: 0; padding-left: 14px;">{gap_items}</ul>
+        </div>
+        """
+
+    unver_note = f"<br/><span style='color: var(--semantic-amber);'>{unverified_req} claimed without project evidence</span>" if unverified_req > 0 else ""
 
     H(f"""
     <article class="bento-card score-card-hero fade-up-1" style="height: 100%; display: flex; flex-direction: column; justify-content: space-between; box-sizing: border-box;">
@@ -294,7 +321,7 @@ def _render_score_ring(score: float, matched_req: int, total_req: int, matched_p
     <span class="section-label">OVERALL ALIGNMENT</span>
     <h2 class="card-title">Role Match Score</h2>
     </div>
-    <div class="score-ring-svg" style="width: 140px; height: 140px; margin: 0.5rem auto;">
+    <div class="score-ring-svg" style="width: 140px; height: 140px; margin: 0.35rem auto;">
     <svg viewBox="0 0 120 120" width="140" height="140" style="transform: rotate(-90deg);" aria-label="Match score progress ring: {pct}%">
     <circle cx="60" cy="60" r="54" fill="none" stroke="rgba(255, 255, 255, 0.08)" stroke-width="6" />
     <circle cx="60" cy="60" r="54" fill="none" stroke="{ring_color}" stroke-width="6"
@@ -306,9 +333,13 @@ def _render_score_ring(score: float, matched_req: int, total_req: int, matched_p
     </div>
     </div>
     <div>
-    <div class="score-verdict-badge {badge_cls}">{verdict}</div>
-    <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.85rem; line-height: 1.5;">
-    {matched_req} of {total_req} required criteria verified<br/>
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+    <div class="score-verdict-badge {badge_cls}">{verdict} ({pct}%)</div>
+    {elig_badge}
+    </div>
+    {gaps_html}
+    <p style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.65rem; line-height: 1.45; text-align: center;">
+    <strong>{verified_req} of {total_req}</strong> mandatory skills verified with evidence{unver_note}<br/>
     {matched_pref} of {total_pref} preferred criteria met
     </p>
     </div>
@@ -1616,8 +1647,57 @@ elif page == "Match & Analysis":
                         # Row 1: Score Card (left, tall) + Summary & Skills (right)
                         bento_left, bento_right = st.columns([4.2, 7.8], gap="large")
 
+                        # Evidence-backed separation of demonstrated vs unverified skills
+                        req_demonstrated = []
+                        req_unverified = []
+                        for s in req_matched:
+                            ev_info = (ev_data or {}).get(s, {})
+                            lvl = ev_info.get("level", "demonstrated")
+                            if lvl in ("high_depth", "demonstrated"):
+                                req_demonstrated.append(s)
+                            else:
+                                req_unverified.append(s)
+
+                        # Experience evaluation details
+                        exp_analysis = m.get("experience_analysis") or {}
+                        req_years = exp_analysis.get("required_years")
+                        cand_years = exp_analysis.get("candidate_years", 0.0)
+                        exp_met = exp_analysis.get("is_met", (cand_years >= req_years if req_years else True))
+                        exp_status = "Met" if exp_met else ("Partial" if (cand_years > 0 or exp_analysis.get("has_internships")) else "Missing")
+
+                        # Separate Eligibility Evaluation (from backend or resilient fallback)
+                        elig_data = m.get("eligibility") or {}
+                        is_eligible = elig_data.get("is_eligible")
+                        if is_eligible is None:
+                            is_eligible = bool(exp_met and len(req_missing) == 0)
+
+                        eligibility_status = elig_data.get("status")
+                        if not eligibility_status:
+                            eligibility_status = "Meets All Mandatory Requirements" if is_eligible else "Does Not Meet All Mandatory Requirements"
+
+                        mandatory_gaps = elig_data.get("mandatory_gaps", [])
+                        if not mandatory_gaps:
+                            if not exp_met and req_years:
+                                mandatory_gaps.append(f"Experience deficit: {cand_years:.1f} yr(s) actual vs {req_years} yr(s) required")
+                            for sm in req_missing:
+                                mandatory_gaps.append(f"Missing mandatory skill: {sm.title()}")
+
+                        # Consistent criteria and gap totals matching detailed breakdown
+                        critical_gaps_count = len(req_missing) + (1 if not exp_met and req_years else 0)
+                        total_gaps = critical_gaps_count + len(pref_missing)
+
                         with bento_left:
-                            _render_score_ring(score, len(req_matched), total_req, len(pref_matched), total_pref)
+                            _render_score_ring(
+                                score,
+                                len(req_demonstrated),
+                                total_req,
+                                len(pref_matched),
+                                total_pref,
+                                unverified_req=len(req_unverified),
+                                is_eligible=is_eligible,
+                                eligibility_status=eligibility_status,
+                                mandatory_gaps=mandatory_gaps,
+                            )
 
                         with bento_right:
                             H(f"""
@@ -1628,31 +1708,34 @@ elif page == "Match & Analysis":
                             <h2 class="card-title">Evaluation Breakdown</h2>
                             </div>
                             <div style="font-size: 12px; color: var(--text-secondary);">
-                            <span style="font-weight: 600; color: var(--accent-emerald);">{len(req_matched)}</span> / {total_req} criteria
+                            <span style="font-weight: 600; color: var(--accent-emerald);">{len(req_demonstrated)}</span> / {total_req} verified skills
                             </div>
                             </div>
                             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 1rem 0;">
                             <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem;">
                             <span class="section-label">MANDATORY MET</span>
                             <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.35rem; font-weight: 600; color: var(--accent-emerald);">
-                            {len(req_matched)}
+                            {len(req_demonstrated)}
                             </div>
+                            <div style="font-size: 0.72rem; color: var(--text-tertiary); margin-top: 2px;">Demonstrated with evidence</div>
                             </div>
                             <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem;">
-                            <span class="section-label">PREFERRED MET</span>
+                            <span class="section-label">UNVERIFIED (CLAIMED)</span>
                             <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.35rem; font-weight: 600; color: var(--semantic-amber);">
-                            {len(pref_matched)}
+                            {len(req_unverified)}
                             </div>
+                            <div style="font-size: 0.72rem; color: var(--text-tertiary); margin-top: 2px;">Listed without context</div>
                             </div>
                             <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem;">
-                            <span class="section-label">TOTAL GAPS</span>
+                            <span class="section-label">CRITICAL GAPS</span>
                             <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.35rem; font-weight: 600; color: var(--semantic-rose);">
-                            {total_gaps}
+                            {critical_gaps_count}
+                            </div>
+                            <div style="font-size: 0.72rem; color: var(--text-tertiary); margin-top: 2px;">Missing skills & exp</div>
                             </div>
                             </div>
-                            </div>
-                            <span class="section-label" style="margin-top: 0.75rem;">VERIFIED CANDIDATE SKILLS</span>
-                            {_tags(req_matched, "matched")}
+                            <span class="section-label" style="margin-top: 0.5rem;">VERIFIED CANDIDATE SKILLS</span>
+                            {_tags(req_demonstrated, "matched")}
                             </article>
                             """)
 
@@ -1664,22 +1747,24 @@ elif page == "Match & Analysis":
                             H(f"""
                             <article class="bento-card fade-up-3" style="min-height: 240px;">
                             <span class="section-label" style="color: var(--accent-emerald);">VERIFIED STRENGTHS</span>
-                            <h3 class="card-title">Required Met ({len(req_matched)})</h3>
+                            <h3 class="card-title">Required Met ({len(req_demonstrated)})</h3>
                             <p style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
-                            Mandatory competencies documented in candidate background:
+                            Mandatory competencies documented with active evidence:
                             </p>
-                            {_tags(req_matched, "matched")}
+                            {_tags(req_demonstrated, "matched")}
                             </article>
                             """)
 
                         with c_gap:
+                            exp_gap_banner = f'<div style="margin-bottom:0.5rem;padding:4px 8px;border-radius:6px;background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.25);font-size:0.78rem;color:var(--semantic-rose);font-weight:500;">&#9888; Experience Deficit: {cand_years:.1f} yr(s) actual vs {req_years} yr(s) required ({exp_status})</div>' if (not exp_met and req_years) else ''
                             H(f"""
                             <article class="bento-card fade-up-4" style="min-height: 240px;">
                             <span class="section-label" style="color: var(--semantic-rose);">CRITICAL GAPS</span>
-                            <h3 class="card-title">Missing Required ({len(req_missing)})</h3>
+                            <h3 class="card-title">Critical Gaps ({critical_gaps_count})</h3>
                             <p style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
-                            Essential prerequisites absent from candidate experience:
+                            Essential prerequisites absent or unmet:
                             </p>
+                            {exp_gap_banner}
                             {_tags(req_missing, "missing")}
                             </article>
                             """)
