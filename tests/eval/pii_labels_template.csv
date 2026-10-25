@@ -1,0 +1,4 @@
+label_id,resume_file,pii_type,pii_value
+EXAMPLE_001,resume_001_aisha_patel.pdf,name,Aisha Patel
+EXAMPLE_002,resume_001_aisha_patel.pdf,email,aisha.patel@example.com
+EXAMPLE_003,resume_001_aisha_patel.pdf,phone,+92 300 1234567

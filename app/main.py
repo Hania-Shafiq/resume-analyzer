@@ -69,6 +69,7 @@ app.add_middleware(
 
 from app.routers_star import star_router; app.include_router(star_router)
 from app.routers_extra import extra_router; app.include_router(extra_router)
+from app.routers_blind import blind_router; app.include_router(blind_router)
 
 # ---------------------------------------------------------------------------
 # Schemas
