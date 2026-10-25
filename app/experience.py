@@ -53,8 +53,12 @@ class ExperienceEntry:
 class ExperienceSummary:
     professional_months: int = 0
     freelance_months: int = 0
+    full_time_months: int = 0
+    internship_months: int = 0
     professional_str: str = "Not indicated"
     freelance_str: str = "Not indicated"
+    full_time_str: str = "Not indicated"
+    internship_str: str = "Not indicated"
     combined_str: Optional[str] = None
     has_internships: bool = False
     internship_note: Optional[str] = None
@@ -65,8 +69,12 @@ class ExperienceSummary:
         return {
             "professional_months": self.professional_months,
             "freelance_months": self.freelance_months,
+            "full_time_months": self.full_time_months,
+            "internship_months": self.internship_months,
             "professional_str": self.professional_str,
             "freelance_str": self.freelance_str,
+            "full_time_str": self.full_time_str,
+            "internship_str": self.internship_str,
             "combined_str": self.combined_str,
             "has_internships": self.has_internships,
             "internship_note": self.internship_note,
@@ -214,10 +222,11 @@ RE_EXPLICIT_DURATION = re.compile(
 
 # Fallback summary statements: "3+ years of experience"
 _EXP_SUMMARY_PATTERNS = [
-    re.compile(r"(\d+)\+?\s*(?:to\s*\d+)?\s*years?\s*(?:of\s*)?(?:professional\s*)?experience", re.IGNORECASE),
-    re.compile(r"(?:over|more than|at least|nearly)\s*(\d+)\s*years?", re.IGNORECASE),
-    re.compile(r"experience\s*(?:of\s*)?(\d+)\+?\s*years?", re.IGNORECASE),
-    re.compile(r"(\d+)\s*[-–]\s*(\d+)\s*years?\s*(?:of\s*)?experience", re.IGNORECASE),
+    re.compile(r"(\d{1,2})\+?\s*(?:to\s*\d{1,2})?\s*(?:years?|yrs?|yr)\s*(?:of\s*)?(?:professional|full[- ]time|relevant|industry)?\s*experience", re.IGNORECASE),
+    re.compile(r"(?:over|more than|at least|nearly|minimum|min\.?)\s*(\d{1,2})\+?\s*(?:years?|yrs?|yr)", re.IGNORECASE),
+    re.compile(r"\bexperience\b[*_]*\s*[:\-–]?\s*[*_]*\s*(?:of\s*)?(\d{1,2})\+?\s*(?:years?|yrs?|yr)?", re.IGNORECASE),
+    re.compile(r"(\d{1,2})\s*[-–]\s*(\d{1,2})\s*(?:years?|yrs?|yr)\s*(?:of\s*)?experience", re.IGNORECASE),
+    re.compile(r"(\d{1,2})\+?\s*(?:years?|yrs?|yr)\b\s*(?:of\s*)?[a-zA-Z\s&/\-]{0,30}experience", re.IGNORECASE),
 ]
 
 
@@ -581,17 +590,22 @@ def extract_experience(text: str, now: Optional[datetime.date] = None) -> Experi
     # Step 2: Separate entries by bucket and merge overlapping ranges
     prof_intervals = [e.interval for e in entries if e.bucket == "professional" and e.interval]
     free_intervals = [e.interval for e in entries if e.bucket == "freelance" and e.interval]
+    full_time_intervals = [e.interval for e in entries if e.bucket == "professional" and not e.is_internship and e.interval]
+    internship_intervals = [e.interval for e in entries if e.is_internship and e.interval]
 
     prof_months = merge_intervals(prof_intervals)
     free_months = merge_intervals(free_intervals)
+    full_time_months = merge_intervals(full_time_intervals)
+    internship_months = merge_intervals(internship_intervals)
 
     has_internships = any(e.is_internship for e in entries)
 
     # Step 3: Fallback check if no dated intervals were found
     if prof_months == 0 and free_months == 0:
         found_fallback_years = []
+        cleaned_text = re.sub(r"[*_#`~]", " ", text)
         for pat in _EXP_SUMMARY_PATTERNS:
-            for m in pat.finditer(text):
+            for m in pat.finditer(cleaned_text):
                 try:
                     found_fallback_years.append(int(m.group(1)))
                 except (IndexError, ValueError):
@@ -601,6 +615,7 @@ def extract_experience(text: str, now: Optional[datetime.date] = None) -> Experi
             fb_years = max(found_fallback_years)
             # Default fallback to professional
             prof_months = fb_years * 12
+            full_time_months = fb_years * 12
             entries.append(ExperienceEntry(
                 title="Professional Experience (summary)",
                 duration_months=prof_months,
@@ -611,9 +626,9 @@ def extract_experience(text: str, now: Optional[datetime.date] = None) -> Experi
 
     # Step 4: Format strings
     has_any = (prof_months > 0) or (free_months > 0) or bool(entries)
+    has_sec = any(h in text.lower() for h in SECTION_HEADERS)
     if not has_any:
         # Check if the document mentions experience section without valid dates/numbers
-        has_sec = any(h in text.lower() for h in SECTION_HEADERS)
         if has_sec:
             prof_str = "None"
             free_str = "None"
@@ -624,6 +639,8 @@ def extract_experience(text: str, now: Optional[datetime.date] = None) -> Experi
         prof_str = format_duration(prof_months)
         free_str = format_duration(free_months)
 
+    full_time_str = format_duration(full_time_months) if full_time_months > 0 else ("None" if has_sec else "Not indicated")
+    internship_str = format_duration(internship_months) if internship_months > 0 else ("None" if has_sec else "Not indicated")
     intern_note = "Includes internship experience" if has_internships else None
 
     # Optional combined secondary figure
@@ -633,8 +650,12 @@ def extract_experience(text: str, now: Optional[datetime.date] = None) -> Experi
     return ExperienceSummary(
         professional_months=prof_months,
         freelance_months=free_months,
+        full_time_months=full_time_months,
+        internship_months=internship_months,
         professional_str=prof_str,
         freelance_str=free_str,
+        full_time_str=full_time_str,
+        internship_str=internship_str,
         combined_str=combined_str,
         has_internships=has_internships,
         internship_note=intern_note,

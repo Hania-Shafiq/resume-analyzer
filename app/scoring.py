@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Presets and Configuration
 # ---------------------------------------------------------------------------
 
-DEFAULT_SEMANTIC_LOW: float = 0.15
+DEFAULT_SEMANTIC_LOW: float = 0.20
 DEFAULT_SEMANTIC_HIGH: float = 0.65
 
 DEFAULT_EVIDENCE_MULTIPLIERS: dict[str, float] = {
@@ -198,9 +198,17 @@ def extract_jd_required_years(jd_analysis: Any) -> float | None:
     if min_exp is not None:
         try:
             val = float(min_exp)
-            return val if val > 0 else None
+            if val > 0:
+                return val
         except (ValueError, TypeError):
-            return None
+            pass
+    # Resilient fallback: scan raw JD text if min_experience_years was omitted/None
+    raw_jd = extract_jd_text(jd_analysis)
+    if raw_jd:
+        from app.skills import extract_experience_years
+        fallback_exp = extract_experience_years(raw_jd)
+        if fallback_exp is not None and fallback_exp > 0:
+            return float(fallback_exp)
     return None
 
 
@@ -266,7 +274,7 @@ def compute_scores(
     mode : {"skills_only", "hybrid", "proposal"}, optional
         Scoring preset. Defaults to env var SCORING_MODE or "skills_only".
     semantic_low : float, optional
-        Lower bound for cosine similarity normalization (default: 0.15).
+        Lower bound for cosine similarity normalization (default: 0.20).
     semantic_high : float, optional
         Upper bound for cosine similarity normalization (default: 0.65).
 
@@ -409,6 +417,11 @@ def compute_scores(
     required_years = extract_jd_required_years(jd_analysis)
     if required_years is not None and required_years > 0:
         candidate_years = extract_candidate_years(resume_profile)
+        if candidate_years == 0.0 and raw_resume_text:
+            from app.skills import extract_experience_years
+            fb_cv_years = extract_experience_years(raw_resume_text)
+            if fb_cv_years is not None and fb_cv_years > 0:
+                candidate_years = float(fb_cv_years)
         experience_fit = round(min(candidate_years / required_years, 1.0), 4)
     else:
         experience_fit = 1.0
@@ -440,6 +453,7 @@ def compute_scores(
             active_mode = "skills_only"
             weights = SCORING_CONFIG["skills_only"].copy()
             semantic_similarity_val = None
+            skill_coverage_val = plain_coverage
 
     # ── 6. Skill Recency Component (Lazy Loaded for Composite Mode) ─────────
     skill_recency_table: dict[str, dict[str, Any]] | None = None

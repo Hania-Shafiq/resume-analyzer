@@ -19,7 +19,7 @@ import hashlib
 import io
 import os
 from pathlib import Path
-from typing import Annotated, List
+from typing import Annotated, List, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -83,6 +83,7 @@ class JDRequest(BaseModel):
 class MatchRequest(BaseModel):
     resume_text: str
     job_description: str
+    mode: Optional[str] = None
 
 
 class SkillGapRequest(BaseModel):
@@ -276,9 +277,27 @@ def match_resume_to_jd(body: MatchRequest):
 
     # Candidate profile for experience and education fit
     edu_list   = extract_education(cleaned_resume)
-    exp_years  = extract_experience_years(cleaned_resume)
+    exp_summary = extract_experience(cleaned_resume)
+
+    # Strictly distinguish full-time professional experience from internships
+    if exp_summary.full_time_months > 0:
+        prof_years = round(exp_summary.full_time_months / 12.0, 2)
+    elif exp_summary.professional_months > 0 and not exp_summary.has_internships:
+        prof_years = round(exp_summary.professional_months / 12.0, 2)
+    else:
+        prof_years = 0.0
+
+    if prof_years == 0.0:
+        fb_years = extract_experience_years(cleaned_resume)
+        if fb_years is not None and fb_years > 0:
+            prof_years = float(fb_years)
+
     profile = {
-        "experience_years": exp_years,
+        "experience_years": prof_years,
+        "professional_months": exp_summary.full_time_months if exp_summary.full_time_months > 0 else exp_summary.professional_months,
+        "full_time_years": prof_years,
+        "internship_months": exp_summary.internship_months,
+        "has_internships": exp_summary.has_internships,
         "education": [{"degree": e.degree, "field": e.field} for e in edu_list],
     }
 
@@ -287,7 +306,30 @@ def match_resume_to_jd(body: MatchRequest):
         resume_skills=resume_skills,
         jd_analysis=jd_analysis,
         resume_profile=profile,
+        mode=body.mode if getattr(body, "mode", None) else None,
     )
+
+    # Mandatory qualification eligibility evaluation (separated from weighted match score)
+    exp_required = jd_analysis.min_experience_years
+    exp_met = bool(exp_required is None or prof_years >= exp_required)
+    skills_met = (len(req_missing) == 0)
+
+    from app.scoring import extract_jd_required_degree_level, extract_candidate_degree_level
+    edu_rank_req = extract_jd_required_degree_level(jd_analysis)
+    edu_rank_cand = extract_candidate_degree_level(profile)
+    edu_met = bool(edu_rank_req == 0 or edu_rank_cand >= edu_rank_req)
+
+    mandatory_gaps: list[str] = []
+    if not exp_met and exp_required is not None:
+        mandatory_gaps.append(f"Experience deficit: {prof_years:.1f} yr(s) actual vs {exp_required} yr(s) required")
+    if not skills_met:
+        for sm in req_missing:
+            mandatory_gaps.append(f"Missing mandatory skill: {sm.title()}")
+    if not edu_met:
+        mandatory_gaps.append("Education: Candidate degree level does not meet stated minimum requirement")
+
+    is_eligible = exp_met and skills_met and edu_met
+    eligibility_status = "Meets All Mandatory Requirements" if is_eligible else "Does Not Meet All Mandatory Requirements"
 
     return {
         "skill_overlap_score":       scores["skill_overlap_score"],
@@ -302,6 +344,22 @@ def match_resume_to_jd(body: MatchRequest):
         "preferred_missing":         pref_missing,
         "total_required":            len(required),
         "total_preferred":           len(preferred),
+        "experience_analysis": {
+            "required_years": jd_analysis.min_experience_years,
+            "candidate_years": prof_years,
+            "full_time_str": exp_summary.full_time_str,
+            "internship_str": exp_summary.internship_str,
+            "has_internships": exp_summary.has_internships,
+            "is_met": exp_met,
+        },
+        "eligibility": {
+            "status": eligibility_status,
+            "is_eligible": is_eligible,
+            "mandatory_gaps": mandatory_gaps,
+            "experience_met": exp_met,
+            "skills_met": skills_met,
+            "education_met": edu_met,
+        },
         "note":                      "Semantic, experience and education scoring planned for a future release.",
     }
 
@@ -346,6 +404,7 @@ def recommendations(resume_text: str, job_description: str = ""):
         jd           = analyze_job_description(job_description)
         gap_required = sorted(set(jd.required_skills)  - resume_skills)
         gap_preferred= sorted(set(jd.preferred_skills) - resume_skills)
+        all_recs = gap_required + [s for s in gap_preferred if s not in gap_required]
     else:
         # Generic high-demand skills (static list for Phase 1)
         high_demand   = ["python", "docker", "kubernetes", "machine learning",
@@ -355,7 +414,7 @@ def recommendations(resume_text: str, job_description: str = ""):
         gap_preferred = []
 
     return {
-        "recommended_to_learn":   gap_required[:10],
+        "recommended_to_learn":   all_recs[:10] if 'all_recs' in locals() else gap_required[:10],
         "nice_to_add":            gap_preferred[:5],
         "note": "Course-link integration planned for a future release.",
     }

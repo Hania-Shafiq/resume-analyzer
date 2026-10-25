@@ -40,6 +40,7 @@ STRONG_VERBS = frozenset({
     "administer", "monitor", "secure", "debug", "test", "release", "publish",
     "mentor", "drive", "cut", "boost", "lower", "enhance", "extend", "modernize",
     "upgrade", "consolidate", "execute", "own", "found", "construct", "program",
+    "clean", "extract", "visualize", "visualise", "transform", "query", "process",
 })
 
 _IRREGULAR = {

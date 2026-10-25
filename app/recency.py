@@ -145,6 +145,21 @@ def _parse_line_date(
             if 1970 <= y <= now.year + 2:
                 return (y, y, False, m_single.group(0))
 
+    # 5. Relative recency expressions (e.g. "used in the last 6 months", "1 year ago", "last year")
+    m_recent = re.search(r"\b(?:in\s+the\s+)?last\s+(\d+)?\s*(?:months?|weeks?|days?)\b", line, re.IGNORECASE)
+    if m_recent:
+        return (now.year, now.year, True, m_recent.group(0))
+
+    m_ago = re.search(r"\b(\d+)\s*(?:years?|yrs?)\s+ago\b", line, re.IGNORECASE)
+    if m_ago:
+        diff = int(m_ago.group(1))
+        y = max(1970, now.year - diff)
+        return (y, y, False, m_ago.group(0))
+
+    m_last_yr = re.search(r"\blast\s+year\b", line, re.IGNORECASE)
+    if m_last_yr:
+        return (now.year - 1, now.year - 1, False, m_last_yr.group(0))
+
     return None
 
 
@@ -164,6 +179,27 @@ def _skill_matches_line(
     # Punctuation/symbol boundary matching
     pattern = rf"(?<![a-zA-Z0-9]){re.escape(clean_skill)}(?![a-zA-Z0-9])"
     return bool(re.search(pattern, line, re.IGNORECASE))
+
+
+def _is_duty_line(line: str) -> bool:
+    """Return True if a line represents work responsibilities/accomplishments rather than a job title."""
+    clean = line.strip()
+    if not clean:
+        return False
+    indicators = [
+        "built", "developed", "designed", "managed", "created", "led", "engineered",
+        "implemented", "worked", "responsible", "using", "with", "automated", "optimized",
+        "wrote", "deployed", "maintained", "architected", "supported", "analyzed",
+        "collaborated", "assisted", "programmed", "spearheaded", "orchestrated",
+        "monitored", "configured", "reduced", "scaled", "delivered", "trained"
+    ]
+    if any(re.search(rf"\b{w}\b", clean, re.IGNORECASE) for w in indicators):
+        return True
+    if clean.endswith((".", ";", "!")) and len(clean.split()) >= 4:
+        return True
+    if len(clean) > 60:
+        return True
+    return False
 
 
 def _split_resume_entries(
@@ -213,7 +249,10 @@ def _split_resume_entries(
         # Inline skills (e.g. "Skills: Python, Docker, Go")
         m_inline = RE_INLINE_SKILLS.match(raw_line)
         if m_inline:
-            skills_lines.append(raw_line)
+            if current_entry is not None:
+                current_entry["lines"].append(raw_line)
+            else:
+                skills_lines.append(raw_line)
             continue
 
         # Lines inside Education section are ignored for experience
@@ -276,8 +315,8 @@ def _split_resume_entries(
                 entries.append(current_entry)
                 pending_titles = []
         else:
-            # Non-date line
-            if _is_bullet_line(raw_line):
+            # Non-date line: check bullet format OR responsibility/duty text under an active job entry
+            if _is_bullet_line(raw_line) or (current_entry is not None and _is_duty_line(raw_line)):
                 if current_entry is not None:
                     current_entry["lines"].append(raw_line)
                 elif pending_titles:
@@ -294,7 +333,7 @@ def _split_resume_entries(
                 else:
                     skills_lines.append(raw_line)
             else:
-                # Potential title / company line
+                # Potential title / company line (breaks current entry to start collecting for next job)
                 if current_entry is not None:
                     current_entry = None
                 pending_titles.append(raw_line)

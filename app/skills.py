@@ -363,15 +363,16 @@ def extract_education(text: str) -> list[EducationEntry]:
 
 # Patterns that express years of experience in job postings / resume summaries
 _EXP_PATTERNS: list[re.Pattern] = [re.compile(pat, re.IGNORECASE) for pat in [
-    # Range: "0-2 years", "3-5 years", "0 to 2 years", "0–2 years" -> capture lower bound (group 1)
-    r"(\d+)\s*(?:[-–]|to)\s*\d+\s*years?",
-    # "5+ years of experience", "5 years experience", "5+ years of software engineering experience"
-    # Negative lookbehind (?<![-–\d]) ensures we don't grab the upper bound of a range (e.g. '2' from '0-2')
-    r"(?<![-–\d])(\d+)\+?\s*years?\s*(?:of\s*)?(?:[a-zA-Z\s&/\-]{0,35})?\bexperience\b",
-    # "over 3 years", "more than 7 years", "at least 3 years"
-    r"(?:over|more than|at least|nearly)\s*(\d+)\s*years?",
-    # "experience of 4+ years"
-    r"experience\s*(?:of\s*)?(\d+)\+?\s*years?",
+    # Range: "0-2 years", "3-5 yrs", "0 to 2 years" -> capture lower bound (group 1)
+    r"(\d{1,2})\s*(?:[-–]|to)\s*\d{1,2}\s*(?:years?|yrs?|yr)\b",
+    # "5+ years of experience", "5 yrs experience", "5+ years of software engineering experience"
+    r"(?<![-–\d])(\d{1,2})\+?\s*(?:years?|yrs?|yr)\b\s*(?:of\s*)?(?:[a-zA-Z\s&/\-]{0,40})?\bexperience\b",
+    # "minimum 3 years", "min 3 yrs", "over 3 years", "at least 3 years"
+    r"(?:minimum|min\.?|over|more than|at least|nearly)\s*(\d{1,2})\+?\s*(?:years?|yrs?|yr)\b",
+    # "experience: 3 years", "experience of 4+ years", "experience: 3+ yrs", "**Required Experience:** 3 years"
+    r"\bexperience\b[*_]*\s*[:\-–]?\s*[*_]*\s*(?:of\s*)?(\d{1,2})\+?\s*(?:years?|yrs?|yr)?\b",
+    # "3+ years required", "3+ years in Python"
+    r"(?<![-–\d])(\d{1,2})\+?\s*(?:years?|yrs?|yr)\b\s*(?:required|needed|in\b)",
 ]]
 
 
@@ -401,8 +402,12 @@ def extract_experience_years(text: str) -> int | None:
 
     found_years: list[int] = []
 
+    # Strip markdown decorators (**bold**, *italic*, # headers, `code`, ~strike~)
+    # so patterns like "**Required Experience:** 3 years" match cleanly.
+    cleaned = re.sub(r"[*_#`~]", " ", text)
+
     for pat in _EXP_PATTERNS:
-        for m in pat.finditer(text):
+        for m in pat.finditer(cleaned):
             # Group 1 is always the primary year number
             try:
                 found_years.append(int(m.group(1)))
