@@ -16,7 +16,7 @@ DISCLAIMER_TEXT = "Suggestions give structure only; fill every placeholder with 
 class StarRewriteRequest(BaseModel):
     resume_text: str
     jd_text: Optional[str] = None
-    max_suggestions: int = Field(default=5, ge=1)
+    max_suggestions: int = Field(default=5, ge=1, le=50)
 
 
 @star_router.post("/resume/star-rewrite")

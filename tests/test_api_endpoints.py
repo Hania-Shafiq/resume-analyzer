@@ -59,6 +59,29 @@ def make_docx_bytes(text: str) -> bytes:
 
 
 # ===========================================================================
+# 0. Health Check Tests
+# ===========================================================================
+
+class TestHealthEndpoints:
+    """Test suite for GET / and GET /health."""
+
+    def test_root_health_check(self, client):
+        """GET / returns status ok."""
+        response = client.get("/")
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("status") == "ok"
+        assert "message" in data
+
+    def test_health_alias(self, client):
+        """GET /health returns status ok."""
+        response = client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("status") == "ok"
+
+
+# ===========================================================================
 # 1. POST /resume/upload Tests
 # ===========================================================================
 
@@ -169,6 +192,16 @@ class TestResumeUploadEndpoint:
             f"Expected file size limit rejection (400 or 413), but got {response.status_code}. "
             "MAX_FILE_SIZE is not enforced on /resume/upload."
         )
+
+    def test_upload_file_empty_after_cleaning_returns_422(self, client):
+        """Upload a file that becomes empty after light_clean should return 422, not 500."""
+        decorative_bytes = b"---\n===\n***\n\n\n"
+        response = client.post(
+            "/resume/upload",
+            files={"file": ("decorative.txt", decorative_bytes, "text/plain")},
+        )
+        assert response.status_code == 422
+        assert "empty after cleaning" in response.json()["detail"].lower()
 
 
 # ===========================================================================

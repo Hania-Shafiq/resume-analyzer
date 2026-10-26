@@ -61,7 +61,7 @@ def _load_resources() -> tuple[spacy.language.Language, PhraseMatcher]:
 
     # ── 1. Load spaCy (disable unused pipes for speed) ──────────────────────
     try:
-        _nlp = spacy.load("en_core_web_sm", disable=["ner", "attribute_ruler"])
+        _nlp = spacy.load("en_core_web_sm", disable=["ner", "lemmatizer"])
     except OSError as exc:
         raise OSError(
             "spaCy model 'en_core_web_sm' not found. "

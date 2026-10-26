@@ -61,7 +61,7 @@ def rank_candidates(results: list[dict], top_n: int | None = None) -> dict:
             -(r.get("skills_match_count") or 0),
             -(r.get("professional_months") if r.get("professional_months") is not None else ((r.get("experience_years") or 0) * 12)),
             -(r.get("freelance_months") or 0),
-            (r.get("candidate_name") or r.get("filename", "")).lower(),
+            str(r.get("candidate_name") or r.get("filename") or "").lower(),
         )
     )
 
@@ -91,8 +91,8 @@ def rank_candidates(results: list[dict], top_n: int | None = None) -> dict:
 
         ranked.append({
             "rank": i,
-            "filename": entry.get("filename", ""),
-            "candidate_name": entry.get("candidate_name", ""),
+            "filename": entry.get("filename") or "",
+            "candidate_name": entry.get("candidate_name") or "",
             "email": entry.get("email"),
             "match_score": entry.get("match_score", 0),
             "required_matched": req_matched,

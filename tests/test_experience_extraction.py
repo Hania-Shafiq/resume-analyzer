@@ -331,3 +331,21 @@ class TestExperienceWeaknessFixes:
         s5 = extract_experience(t5, now=FIXED_NOW)
         assert s5.professional_months == 34
 
+    def test_mixed_heterogeneous_date_formats(self):
+        """Test heterogeneous date range formats (Month-Year to Year, MM/YYYY to Month-Year, Year to Month-Year)."""
+        # MM/YYYY to Month-Year: 01/2021 to Dec 2023 = 36 months
+        t1 = "EXPERIENCE\nSoftware Engineer at TechCorp\n01/2021 - Dec 2023"
+        s1 = extract_experience(t1, now=FIXED_NOW)
+        assert s1.professional_months == 36
+
+        # Year to Month-Year: 2020 to Dec 2022 = 36 months
+        t2 = "EXPERIENCE\nSoftware Engineer at TechCorp\n2020 - Dec 2022"
+        s2 = extract_experience(t2, now=FIXED_NOW)
+        assert s2.professional_months == 36
+
+        # Month-Year to Year: Jan 2021 to 2023 = 36 months
+        t3 = "EXPERIENCE\nSoftware Engineer at TechCorp\nJan 2021 - 2023"
+        s3 = extract_experience(t3, now=FIXED_NOW)
+        assert s3.professional_months == 36
+
+

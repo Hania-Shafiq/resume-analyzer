@@ -57,9 +57,13 @@ app = FastAPI(
     version="0.1.0",
 )
 
+import os
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS")
+allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()] if allowed_origins_env else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -131,6 +135,7 @@ ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt"}
 # ---------------------------------------------------------------------------
 
 @app.get("/", tags=["Health"])
+@app.get("/health", tags=["Health"])
 def root():
     """Health check — confirms the API is running."""
     return {"status": "ok", "message": "Resume Analyzer API is running. Visit /docs for Swagger UI."}
@@ -157,14 +162,12 @@ async def upload_resume(file: UploadFile = File(...)):
             detail=f"File too large ({len(raw_bytes) / (1024*1024):.1f} MB). Maximum is {MAX_FILE_SIZE / (1024*1024):.0f} MB.",
         )
 
-    # Extract raw text using the parser
+    # Extract and clean raw text using the parser and preprocessor
     try:
         raw_text = extract_text(raw_bytes, filename=file.filename)
+        cleaned  = light_clean(raw_text)
     except (ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-
-    # Light-clean for further NLP processing
-    cleaned = light_clean(raw_text)
 
     # Extract structured information
     skills      = extract_skills(cleaned)
@@ -468,6 +471,10 @@ async def bulk_analyze(
             education = extract_education(cleaned)
             experience = extract_experience_years(cleaned)
             exp_summary = extract_experience(raw_text)
+
+            # Fallback: if explicit phrase wasn't in text, compute from parsed work history
+            if experience is None and exp_summary.professional_months > 0:
+                experience = exp_summary.professional_months // 12
 
             # --- Score against JD ---
             resume_skills = set(skills)

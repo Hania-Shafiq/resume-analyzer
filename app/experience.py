@@ -200,6 +200,13 @@ RE_YEAR_RANGE = re.compile(
     re.IGNORECASE,
 )
 
+# Unified endpoint and mixed range regexes
+_DATE_ENDPOINT_PATTERN = rf"(?:{_MONTHS_PATTERN}\s+['’]?[12]\d{{3}}|(?:0?[1-9]|1[0-2])[/-][12]\d{{3}}|[12]\d{{3}})"
+RE_COMBINED_DATE_RANGE = re.compile(
+    rf"\b({_DATE_ENDPOINT_PATTERN})\s*{_SEP_PATTERN}\s*({_DATE_ENDPOINT_PATTERN}|{_PRESENT_PATTERN})\b",
+    re.IGNORECASE,
+)
+
 # 4) Since / From (e.g. Since 2022, Since Jan 2021)
 RE_SINCE_RANGE = re.compile(
     rf"\b(?:since|from)\s+(?:({_MONTHS_PATTERN})\s+['’]?([12]\d{{3}})|(0?[1-9]|1[0-2])[/-]([12]\d{{3}})|([12]\d{{3}}))(?!\s*(?:[-–—/]|to|until|till)\s*(?:[12]\d{{3}}|{_MONTHS_PATTERN}|{_PRESENT_PATTERN}))\b",
@@ -318,6 +325,28 @@ def _extract_title_company_from_preceding_lines(
         return (p_minus_2, p_minus_1)
 
 
+def _parse_single_date(d_str: str, is_end: bool, cur_year: int, cur_month: int) -> Optional[Tuple[int, int]]:
+    """Parse a single date endpoint string into (year, month)."""
+    cleaned = d_str.strip()
+    if not cleaned:
+        return None
+    if is_end and re.search(_PRESENT_PATTERN, cleaned.lower()):
+        return (cur_year, cur_month)
+    # 1. Month Year: e.g. "Jan 2021", "January 2021", "Jan '21"
+    m_my = re.match(rf"^({_MONTHS_PATTERN})\s+['’]?([12]\d{{3}})$", cleaned, re.IGNORECASE)
+    if m_my:
+        return (int(m_my.group(2)), _parse_month(m_my.group(1)))
+    # 2. MM/YYYY or MM-YYYY
+    m_num = re.match(r"^(0?[1-9]|1[0-2])[/-]([12]\d{3})$", cleaned)
+    if m_num:
+        return (int(m_num.group(2)), int(m_num.group(1)))
+    # 3. YYYY: e.g. "2021"
+    m_y = re.match(r"^([12]\d{3})$", cleaned)
+    if m_y:
+        return (int(m_y.group(1)), 12 if is_end else 1)
+    return None
+
+
 def parse_date_endpoints(start_str: str, end_str: str, now: Optional[datetime.date] = None) -> Optional[DateInterval]:
     """Parse start and end strings into a DateInterval."""
     if now is None:
@@ -332,64 +361,20 @@ def parse_date_endpoints(start_str: str, end_str: str, now: Optional[datetime.da
         end_str = "Present"
     start_str = start_str_clean
 
-    # End date handling
-    end_str_clean = end_str.strip().lower()
-    is_present = bool(re.search(_PRESENT_PATTERN, end_str_clean))
+    start_parsed = _parse_single_date(start_str, is_end=False, cur_year=cur_year, cur_month=cur_month)
+    end_parsed = _parse_single_date(end_str, is_end=True, cur_year=cur_year, cur_month=cur_month)
 
-    # Match Month Year
-    m_my_start = re.match(rf"^({_MONTHS_PATTERN})\s+['’]?([12]\d{{3}})$", start_str.strip(), re.IGNORECASE)
-    if m_my_start:
-        sy = int(m_my_start.group(2))
-        sm = _parse_month(m_my_start.group(1))
-        if is_present:
-            ey, em = cur_year, cur_month
-        else:
-            m_my_end = re.match(rf"^({_MONTHS_PATTERN})\s+['’]?([12]\d{{3}})$", end_str.strip(), re.IGNORECASE)
-            if m_my_end:
-                ey = int(m_my_end.group(2))
-                em = _parse_month(m_my_end.group(1))
-            else:
-                ey, em = sy, sm
-        if (ey > sy) or (ey == sy and em >= sm):
-            return DateInterval(sy, sm, ey, em)
+    if start_parsed is None:
         return None
 
-    # Match MM/YYYY
-    m_num_start = re.match(r"^(0?[1-9]|1[0-2])[/-]([12]\d{3})$", start_str.strip())
-    if m_num_start:
-        sm = int(m_num_start.group(1))
-        sy = int(m_num_start.group(2))
-        if is_present:
-            ey, em = cur_year, cur_month
-        else:
-            m_num_end = re.match(r"^(0?[1-9]|1[0-2])[/-]([12]\d{3})$", end_str.strip())
-            if m_num_end:
-                em = int(m_num_end.group(1))
-                ey = int(m_num_end.group(2))
-            else:
-                ey, em = sy, sm
-        if (ey > sy) or (ey == sy and em >= sm):
-            return DateInterval(sy, sm, ey, em)
-        return None
+    sy, sm = start_parsed
+    if end_parsed is None:
+        ey, em = (sy, 12) if re.match(r"^([12]\d{3})$", start_str.strip()) else (sy, sm)
+    else:
+        ey, em = end_parsed
 
-    # Match YYYY
-    m_y_start = re.match(r"^([12]\d{3})$", start_str.strip())
-    if m_y_start:
-        sy = int(m_y_start.group(1))
-        sm = 1
-        if is_present:
-            ey, em = cur_year, cur_month
-        else:
-            m_y_end = re.match(r"^([12]\d{3})$", end_str.strip())
-            if m_y_end:
-                ey = int(m_y_end.group(1))
-                em = 12
-            else:
-                ey, em = sy, 12
-        if (ey > sy) or (ey == sy and em >= sm):
-            return DateInterval(sy, sm, ey, em)
-        return None
-
+    if (ey > sy) or (ey == sy and em >= sm):
+        return DateInterval(sy, sm, ey, em)
     return None
 
 
@@ -486,42 +471,26 @@ def extract_experience(text: str, now: Optional[datetime.date] = None) -> Experi
         matched = False
         s_str, e_str, match_text = "", "", ""
 
-        # 1) Month Year Range
-        m_my = RE_MONTH_YEAR_RANGE.search(line_clean)
-        if m_my:
-            s_str = m_my.group(1) + " " + m_my.group(2)
-            e_str = m_my.group(3)
-            match_text = m_my.group(0)
+        # 1) Combined & Mixed Date Range (handles Month-Year, MM/YYYY, and YYYY combinations)
+        m_comb = RE_COMBINED_DATE_RANGE.search(line_clean)
+        if m_comb:
+            s_str = m_comb.group(1)
+            e_str = m_comb.group(2)
+            match_text = m_comb.group(0)
             matched = True
         else:
-            # 2) MM/YYYY Range
-            m_num = RE_NUM_MONTH_RANGE.search(line_clean)
-            if m_num:
-                s_str = m_num.group(1) + "/" + m_num.group(2)
-                e_str = m_num.group(3)
-                match_text = m_num.group(0)
-                matched = True
-            else:
-                # 3) YYYY Range
-                m_yr = RE_YEAR_RANGE.search(line_clean)
-                if m_yr:
-                    s_str = m_yr.group(1)
-                    e_str = m_yr.group(2)
-                    match_text = m_yr.group(0)
-                    matched = True
+            # 2) Since / From Range (e.g. Since 2022)
+            m_since = RE_SINCE_RANGE.search(line_clean)
+            if m_since:
+                if m_since.group(1) and m_since.group(2):
+                    s_str = m_since.group(1) + " " + m_since.group(2)
+                elif m_since.group(3) and m_since.group(4):
+                    s_str = m_since.group(3) + "/" + m_since.group(4)
                 else:
-                    # 4) Since Range
-                    m_since = RE_SINCE_RANGE.search(line_clean)
-                    if m_since:
-                        if m_since.group(1) and m_since.group(2):
-                            s_str = m_since.group(1) + " " + m_since.group(2)
-                        elif m_since.group(3) and m_since.group(4):
-                            s_str = m_since.group(3) + "/" + m_since.group(4)
-                        else:
-                            s_str = m_since.group(5)
-                        e_str = "Present"
-                        match_text = m_since.group(0)
-                        matched = True
+                    s_str = m_since.group(5)
+                e_str = "Present"
+                match_text = m_since.group(0)
+                matched = True
 
         if not matched:
             continue

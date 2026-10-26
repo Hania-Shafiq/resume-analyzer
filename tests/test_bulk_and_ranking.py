@@ -395,3 +395,27 @@ class TestCandidateNameInference:
         assert results["resume_017_alex_murphy.txt"] == "Alex Murphy"
         assert results["Bob-Jones-CV.pdf"] == "Bob Jones"
 
+    def test_rank_with_none_candidate_name_and_filename(self):
+        """Rank candidates when candidate_name and filename are explicitly None."""
+        from app.ranker import rank_candidates
+        entries = [
+            {"status": "analyzed", "candidate_name": None, "filename": None, "match_score": 0.8},
+            {"status": "analyzed", "candidate_name": "Alice", "filename": "alice.txt", "match_score": 0.8},
+        ]
+        res = rank_candidates(entries)
+        assert res["total_analyzed"] == 2
+        assert len(res["ranked"]) == 2
+
+    def test_bulk_analyze_experience_fallback_consistency(self):
+        """Verify bulk_analyze falls back to parsed work history months when explicit phrase is absent."""
+        content = "Software Engineer at TechCorp\nJan 2020 - Jan 2024\nPython, FastAPI"
+        files = [("files", ("engineer.txt", make_txt_bytes(content), "text/plain"))]
+        res = client.post(
+            "/resume/bulk-analyze",
+            files=files,
+            data={"job_description": "Requirements: Python, FastAPI"},
+        )
+        assert res.status_code == 200
+        assert res.json()["results"][0]["experience_years"] == 4
+
+
