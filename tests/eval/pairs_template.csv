@@ -1,0 +1,4 @@
+pair_id,resume_file,jd_file,rater1,rater2,rater3,rater4
+EXAMPLE_001,resume_001_aisha_patel.pdf,jd_001_backend_engineer.txt,85,90,82,88
+EXAMPLE_002,resume_002_james_chen.pdf,jd_002_ml_engineer.txt,92,,89,95
+EXAMPLE_003,resume_003_maria_garcia.pdf,jd_003_frontend_engineer.txt,25,30,,22

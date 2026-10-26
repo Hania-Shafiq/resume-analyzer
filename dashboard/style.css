@@ -871,6 +871,12 @@ div[data-testid="stHorizontalBlock"]:has(.hero-copy) [data-testid="stElementCont
   border: 1px solid var(--semantic-rose-border);
 }
 
+.skill-pill.unverified {
+  background-color: var(--semantic-amber-tint);
+  color: var(--semantic-amber);
+  border: 1px solid var(--semantic-amber-border);
+}
+
 .skill-pill.preferred {
   background-color: var(--semantic-amber-tint);
   color: var(--semantic-amber);

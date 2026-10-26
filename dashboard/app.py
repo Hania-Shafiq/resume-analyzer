@@ -2,11 +2,14 @@
 
 import hashlib
 import html as _html
+import json
 import os
 from pathlib import Path
 import re
+import time
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +48,15 @@ def _resolve_api_base() -> str:
     env_url = os.getenv("API_BASE") or os.getenv("BACKEND_URL")
     if env_url:
         return env_url.strip().rstrip("/")
-    # 3. Local development fallback
+    # 3. Auto-detect active local backend port (prefer active responder on 8008 or 8000)
+    for port in (8008, 8000):
+        try:
+            r = requests.get(f"http://127.0.0.1:{port}/", timeout=0.6)
+            if r.status_code == 200:
+                return f"http://127.0.0.1:{port}"
+        except Exception:
+            pass
+    # 4. Local development fallback
     return "http://127.0.0.1:8000"
 
 API_BASE = _resolve_api_base()
@@ -88,13 +99,36 @@ def _tags(skills: list[str], kind: str = "matched") -> str:
     return f'<div class="skill-pills-wrap">{tags_html}</div>'
 
 
-def _api_ok() -> bool:
-    """Return True if the FastAPI backend is reachable."""
+HEALTH_TIMEOUT = 8
+HEALTH_ATTEMPTS = 6
+HEALTH_WAITS = (2, 4, 6, 8, 10)  # seconds slept between attempts (sleeping free-tier hosts)
+
+
+def _api_ok_once() -> bool:
     try:
-        r = requests.get(f"{API_BASE}/", timeout=8)
-        return r.status_code == 200
+        return requests.get(f"{API_BASE}/", timeout=HEALTH_TIMEOUT).status_code == 200
     except Exception:
         return False
+
+
+def _api_ok() -> bool:
+    """Return True if the backend is reachable, retrying to survive cold starts."""
+    notice = None
+    for attempt in range(HEALTH_ATTEMPTS):
+        if _api_ok_once():
+            if notice is not None:
+                notice.empty()
+            return True
+        if attempt == HEALTH_ATTEMPTS - 1:
+            break
+        if notice is None:
+            notice = st.empty()
+        notice.info("Waking up the analysis server, this can take up to a minute")
+        time.sleep(HEALTH_WAITS[attempt])
+    if notice is None:
+        notice = st.empty()
+    notice.error("API unavailable")
+    return False
 
 # ---------------------------------------------------------------------------
 # Role recommendations — API call + card renderer
@@ -235,32 +269,62 @@ def _render_top_bar(alive: bool) -> None:
 </header>""")
 
 
-def _render_score_ring(score: float, matched_req: int, total_req: int, matched_pref: int, total_pref: int) -> None:
-    """Render clean SVG circular progress ring with tabular numeral and verdict badge."""
+def _render_score_ring(
+    score: float,
+    verified_req: int,
+    total_req: int,
+    matched_pref: int,
+    total_pref: int,
+    unverified_req: int = 0,
+    is_eligible: bool = True,
+    eligibility_status: str = "Meets All Mandatory Requirements",
+    mandatory_gaps: list[str] | None = None,
+) -> None:
+    """Render clean SVG circular progress ring with tabular numeral, eligibility status, and gap notices."""
     pct = max(0, min(100, int(round(score * 100))))
     circumference = 339.292
     offset = circumference * (1.0 - (pct / 100.0))
 
     if pct >= 70:
         badge_cls = "strong"
-        verdict = "Strong match"
+        verdict = "High Weighted Score"
+        ring_color = "#10B981"
     elif pct >= 40:
         badge_cls = "partial"
-        verdict = "Partial match"
+        verdict = "Moderate Weighted Score"
+        ring_color = "#F59E0B"
     else:
         badge_cls = "weak"
-        verdict = "Weak match"
+        verdict = "Low Weighted Score"
+        ring_color = "#F43F5E"
+
+    if is_eligible:
+        elig_badge = f'<div style="display:inline-flex;align-items:center;gap:6px;font-size:0.75rem;font-weight:700;padding:3px 10px;border-radius:999px;background:rgba(16,185,129,0.15);color:#10B981;border:1px solid rgba(16,185,129,0.3);margin-top:0.4rem;">&#10003; {_esc(eligibility_status)}</div>'
+    else:
+        elig_badge = f'<div style="display:inline-flex;align-items:center;gap:6px;font-size:0.75rem;font-weight:700;padding:3px 10px;border-radius:999px;background:rgba(244,63,94,0.15);color:#F43F5E;border:1px solid rgba(244,63,94,0.3);margin-top:0.4rem;">&#10007; {_esc(eligibility_status)}</div>'
+
+    gaps_html = ""
+    if mandatory_gaps and not is_eligible:
+        gap_items = "".join(f"<li style='margin-bottom:2px;'>{_esc(g)}</li>" for g in mandatory_gaps[:3])
+        gaps_html = f"""
+        <div style="margin-top: 0.65rem; padding: 6px 10px; border-radius: 6px; background: rgba(244, 63, 94, 0.08); border: 1px solid rgba(244, 63, 94, 0.2); font-size: 0.74rem; color: var(--semantic-rose); text-align: left;">
+          <strong style="display: block; margin-bottom: 2px;">Mandatory Shortfalls:</strong>
+          <ul style="margin: 0; padding-left: 14px;">{gap_items}</ul>
+        </div>
+        """
+
+    unver_note = f"<br/><span style='color: var(--semantic-amber);'>{unverified_req} claimed without project evidence</span>" if unverified_req > 0 else ""
 
     H(f"""
-    <article class="bento-card score-card-hero fade-up-1" style="height: 100%; display: flex; flex-direction: column; justify-content: space-between;">
+    <article class="bento-card score-card-hero fade-up-1" style="height: 100%; display: flex; flex-direction: column; justify-content: space-between; box-sizing: border-box;">
     <div>
     <span class="section-label">OVERALL ALIGNMENT</span>
     <h2 class="card-title">Role Match Score</h2>
     </div>
-    <div class="score-ring-svg">
-    <svg viewBox="0 0 120 120" width="150" height="150" style="transform: rotate(-90deg);" aria-label="Match score progress ring: {pct}%">
+    <div class="score-ring-svg" style="width: 140px; height: 140px; margin: 0.35rem auto;">
+    <svg viewBox="0 0 120 120" width="140" height="140" style="transform: rotate(-90deg);" aria-label="Match score progress ring: {pct}%">
     <circle cx="60" cy="60" r="54" fill="none" stroke="rgba(255, 255, 255, 0.08)" stroke-width="6" />
-    <circle cx="60" cy="60" r="54" fill="none" stroke="#10B981" stroke-width="6"
+    <circle cx="60" cy="60" r="54" fill="none" stroke="{ring_color}" stroke-width="6"
     stroke-dasharray="339.29" stroke-dashoffset="{offset:.2f}" stroke-linecap="round"
     class="ring-stroke-animate" style="transition: stroke-dashoffset 0.8s ease;" />
     </svg>
@@ -269,9 +333,13 @@ def _render_score_ring(score: float, matched_req: int, total_req: int, matched_p
     </div>
     </div>
     <div>
-    <div class="score-verdict-badge {badge_cls}">{verdict}</div>
-    <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.85rem; line-height: 1.5;">
-    {matched_req} of {total_req} required criteria verified<br/>
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+    <div class="score-verdict-badge {badge_cls}">{verdict} ({pct}%)</div>
+    {elig_badge}
+    </div>
+    {gaps_html}
+    <p style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.65rem; line-height: 1.45; text-align: center;">
+    <strong>{verified_req} of {total_req}</strong> mandatory skills verified with evidence{unver_note}<br/>
     {matched_pref} of {total_pref} preferred criteria met
     </p>
     </div>
@@ -384,6 +452,610 @@ def _render_footer() -> None:
     <div>Built for recruiters and job seekers</div>
     </footer>
     """)
+
+
+# ---------------------------------------------------------------------------
+# Dashboard feature helpers (evidence, overlay, STAR, anonymized screening)
+# ---------------------------------------------------------------------------
+# ---- Cold-start aware helpers ------------------------------------------------
+PII_KEYS = {"name", "candidate_name", "email", "phone", "links", "linkedin", "github", "filename"}
+CATEGORY_STYLE = {
+    "required": ("#10b981", "16,185,129"),
+    "preferred": ("#f59e0b", "245,158,11"),
+    "semantic": ("#3b82f6", "59,130,246"),
+    "unverified": ("#f43f5e", "244,63,94"),
+}
+
+
+def _call_api(method: str, path: str, *, json_body=None, params=None, data=None, files=None, timeout: int = 30):
+    """Return (payload, status_code, error). Never logs request bodies."""
+    try:
+        resp = requests.request(
+            method, f"{API_BASE}{path}", json=json_body, params=params,
+            data=data, files=files, timeout=timeout,
+        )
+    except requests.Timeout:
+        return None, None, "The request timed out. The server may be waking up; please try again."
+    except requests.ConnectionError:
+        return None, None, "Cannot connect to backend service. Please ensure the backend is running."
+    except requests.RequestException as exc:
+        return None, None, f"Request failed: {exc}"
+    if resp.status_code != 200:
+        return None, resp.status_code, _api_error_detail(resp)
+    try:
+        return resp.json(), 200, None
+    except ValueError:
+        return None, 200, "The backend returned an unexpected response."
+
+
+def _esc(value) -> str:
+    return _html.escape(str(value), quote=True)
+
+
+# ---- Custom Responsive Dark-Themed Table ------------------------------------
+def _render_custom_table(headers: list[str], rows: list[list[str]], col_widths: list[str] | None = None) -> None:
+    """Render a fully responsive, styled HTML table matching the dark theme without pyarrow dependency."""
+    if not rows:
+        return
+
+    th_items = []
+    for i, h in enumerate(headers):
+        w_style = f"width: {col_widths[i]};" if col_widths and i < len(col_widths) else ""
+        th_items.append(
+            f'<th style="padding: 10px 14px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; '
+            f'letter-spacing: 0.06em; color: var(--text-secondary); text-align: left; '
+            f'border-bottom: 1px solid var(--border-subtle); {w_style}">{_esc(h)}</th>'
+        )
+
+    tr_items = []
+    for r in rows:
+        td_items = []
+        for cell in r:
+            td_items.append(
+                f'<td style="padding: 10px 14px; font-size: 0.85rem; color: var(--text-primary); '
+                f'border-bottom: 1px solid rgba(255, 255, 255, 0.04); vertical-align: top; '
+                f'word-break: break-word; overflow-wrap: break-word; line-height: 1.45;">{cell}</td>'
+            )
+        tr_items.append(
+            f'<tr style="transition: background 0.15s ease;" '
+            f'onmouseover="this.style.background=\'rgba(255,255,255,0.02)\'" '
+            f'onmouseout="this.style.background=\'transparent\'">{"".join(td_items)}</tr>'
+        )
+
+    table_html = f"""
+    <div style="overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0.5rem 0 1rem 0; border: 1px solid var(--border-subtle); border-radius: 8px; background: rgba(255, 255, 255, 0.015);">
+      <table style="width: 100%; border-collapse: collapse; text-align: left; font-family: inherit;">
+        <thead>
+          <tr style="background: rgba(255, 255, 255, 0.03);">
+            {"".join(th_items)}
+          </tr>
+        </thead>
+        <tbody>
+          {"".join(tr_items)}
+        </tbody>
+      </table>
+    </div>
+    """
+    H(table_html)
+
+
+ACTIONABLE_SKILL_RECS = {
+    "crm": "Master CRM platforms (Salesforce Trailhead, HubSpot Academy); build contact lifecycle workflows, opportunity tracking, and activity dashboards.",
+    "lead generation": "Master outbound sales prospecting (cold email outreach, LinkedIn Sales Navigator, list building); implement BANT/MEDDIC qualification frameworks.",
+    "negotiation": "Study consultative sales negotiation, objection resolution, value-based pricing, and closing strategies (e.g. SPIN Selling, The Challenger Sale).",
+    "sales pipeline management": "Develop pipeline stage progression criteria, deal velocity tracking, conversion bottleneck analysis, and quarterly revenue forecasting.",
+    "b2b sales": "Master enterprise B2B sales cycles, multi-stakeholder executive alignment, and consultative commercial proposals.",
+    "sales": "Develop core consultative selling, structured discovery calls, and objection handling fundamentals.",
+    "account management": "Learn client retention strategies, quarterly business review (QBR) cadence, and account expansion/upselling playbooks.",
+    "market research": "Practice competitive landscape analysis, customer persona creation, and total addressable market (TAM) sizing.",
+    "docker": "Build production multi-stage Dockerfiles, configure container networking, and streamline local multi-container development with Docker Compose.",
+    "kubernetes": "Study Kubernetes architecture: Deployments, Services, Ingress controllers, ConfigMaps, and cluster scaling.",
+    "aws": "Prepare for AWS Certified Solutions Architect; practice deploying EC2, S3, RDS, IAM, and Lambda serverless architectures.",
+    "fastapi": "Build asynchronous Python REST APIs with Pydantic validation, dependency injection, and automated OpenAPI documentation.",
+    "python": "Master Python 3.10+ modern features, typing, asynchronous I/O (asyncio), and comprehensive testing with pytest.",
+    "sql": "Master relational database schema design, indexing, window functions, and query performance optimization.",
+    "postgresql": "Practice PostgreSQL indexing (B-Tree/GIN), partitioning, transactions, and JSONB document queries.",
+    "machine learning": "Review supervised/unsupervised model training, feature engineering, and cross-validation pipelines with scikit-learn.",
+    "natural language processing": "Study spaCy NLP pipelines, tokenization, transformer embeddings, and text classification.",
+    "ci/cd": "Build automated GitHub Actions workflows for continuous integration testing, linting, and continuous delivery.",
+    "git": "Practice Git branching models, rebase workflows, conflict resolution, and pull request reviews.",
+}
+
+
+# ---- Criterion-by-Criterion Breakdown ---------------------------------------
+def _render_criteria_breakdown(m: dict, evidence_data: dict | None = None) -> None:
+    req_matched = set(m.get("required_matched", []))
+    req_missing = set(m.get("required_missing", []))
+    pref_matched = set(m.get("preferred_matched", []))
+    pref_missing = set(m.get("preferred_missing", []))
+    exp_analysis = m.get("experience_analysis") or {}
+
+    rows = []
+    gap_skills = []
+
+    # 1. Experience Criterion (if stated in JD)
+    req_years = exp_analysis.get("required_years")
+    if req_years is not None and req_years > 0:
+        cand_years = exp_analysis.get("candidate_years", 0.0)
+        full_time_str = exp_analysis.get("full_time_str", f"{cand_years} years")
+        internship_str = exp_analysis.get("internship_str", "None")
+        has_intern = exp_analysis.get("has_internships", False)
+        is_met = exp_analysis.get("is_met", cand_years >= req_years)
+
+        req_html = (
+            f'<strong style="color: var(--text-primary);">{req_years}+ Years Professional Experience</strong><br/>'
+            '<span style="font-size: 0.7rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; '
+            'background: rgba(244, 63, 94, 0.15); color: var(--semantic-rose); border: 1px solid rgba(244, 63, 94, 0.3);">MANDATORY</span>'
+        )
+
+        if is_met:
+            badge_html = '<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.75rem;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(16,185,129,0.15);color:#10B981;border:1px solid rgba(16,185,129,0.3);">&#10003; Met</span>'
+            ev_html = f'<span style="font-family:\'JetBrains Mono\',monospace;color:var(--text-primary);">{full_time_str} full-time</span>' + (f' <span style="font-size:0.75rem;color:var(--text-secondary);">({internship_str} internships)</span>' if has_intern else '')
+            expl_html = f'Candidate has {cand_years} years of full-time professional experience, satisfying the {req_years}-year requirement.'
+        elif cand_years > 0 or has_intern:
+            badge_html = '<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.75rem;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(245,158,11,0.15);color:#F59E0B;border:1px solid rgba(245,158,11,0.3);">&#9650; Partial</span>'
+            ev_html = f'<span style="font-family:\'JetBrains Mono\',monospace;color:var(--text-primary);">{full_time_str} full-time</span>' + (f' <span style="font-size:0.75rem;color:var(--semantic-amber);">({internship_str} internships)</span>' if has_intern else '')
+            expl_html = f'Candidate has {cand_years} years full-time experience ({internship_str} in internships), which does not reach the required {req_years} full-time years.'
+        else:
+            badge_html = '<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.75rem;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(244,63,94,0.15);color:#F43F5E;border:1px solid rgba(244,63,94,0.3);">&#10007; Missing</span>'
+            ev_html = '<span style="font-style:italic;color:var(--text-tertiary);">No professional experience detected</span>'
+            expl_html = f'Fails the mandatory requirement of {req_years} years professional experience.'
+
+        rows.append([req_html, badge_html, ev_html, expl_html])
+
+    # 2. Mandatory Skills
+    all_req_skills = sorted(req_matched | req_missing)
+    for skill in all_req_skills:
+        req_html = (
+            f'<strong style="color: var(--text-primary);">{_esc(skill.title())}</strong><br/>'
+            '<span style="font-size: 0.7rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; '
+            'background: rgba(244, 63, 94, 0.15); color: var(--semantic-rose); border: 1px solid rgba(244, 63, 94, 0.3);">MANDATORY</span>'
+        )
+
+        if skill in req_matched:
+            ev_info = (evidence_data or {}).get(skill, {})
+            lvl = ev_info.get("level", "demonstrated")
+            ev_text = ev_info.get("evidence")
+            if lvl in ("high_depth", "demonstrated"):
+                badge_html = '<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.75rem;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(16,185,129,0.15);color:#10B981;border:1px solid rgba(16,185,129,0.3);">&#10003; Met</span>'
+                ev_html = f'<div style="font-size:0.8rem;color:var(--text-secondary);line-height:1.4;"><em style="color:var(--text-primary);">&ldquo;{_esc(ev_text)}&rdquo;</em></div>' if ev_text else '<span style="color:var(--accent-emerald);">Verified in candidate background</span>'
+                expl_html = 'Documented with active project implementation and verbs in resume.'
+            else:
+                badge_html = '<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.75rem;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(245,158,11,0.15);color:#F59E0B;border:1px solid rgba(245,158,11,0.3);">&#9650; Unverified</span>'
+                ev_html = '<span style="font-size:0.8rem;color:var(--text-secondary);font-style:italic;">Keyword listed without action verbs or project context</span>'
+                expl_html = 'Appears in skills keyword list but lacks descriptive accomplishment or metrics.'
+        else:
+            badge_html = '<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.75rem;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(244,63,94,0.15);color:#F43F5E;border:1px solid rgba(244,63,94,0.3);">&#10007; Missing</span>'
+            ev_html = '<span style="font-style:italic;color:var(--text-tertiary);">No documented evidence in resume</span>'
+            expl_html = 'Essential mandatory prerequisite absent from candidate background.'
+            gap_skills.append((skill, "Mandatory Gap", "#F43F5E"))
+
+        rows.append([req_html, badge_html, ev_html, expl_html])
+
+    # 3. Preferred Skills
+    all_pref_skills = sorted(pref_matched | pref_missing)
+    for skill in all_pref_skills:
+        req_html = (
+            f'<strong style="color: var(--text-primary);">{_esc(skill.title())}</strong><br/>'
+            '<span style="font-size: 0.7rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; '
+            'background: rgba(245, 158, 11, 0.15); color: var(--semantic-amber); border: 1px solid rgba(245, 158, 11, 0.3);">PREFERRED</span>'
+        )
+
+        if skill in pref_matched:
+            ev_info = (evidence_data or {}).get(skill, {})
+            lvl = ev_info.get("level", "demonstrated")
+            ev_text = ev_info.get("evidence")
+            if lvl in ("high_depth", "demonstrated"):
+                badge_html = '<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.75rem;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(16,185,129,0.15);color:#10B981;border:1px solid rgba(16,185,129,0.3);">&#10003; Met</span>'
+                ev_html = f'<div style="font-size:0.8rem;color:var(--text-secondary);line-height:1.4;"><em style="color:var(--text-primary);">&ldquo;{_esc(ev_text)}&rdquo;</em></div>' if ev_text else '<span style="color:var(--accent-emerald);">Verified in candidate background</span>'
+                expl_html = 'Documented with active context supporting role requirements.'
+            else:
+                badge_html = '<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.75rem;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(245,158,11,0.15);color:#F59E0B;border:1px solid rgba(245,158,11,0.3);">&#9650; Unverified</span>'
+                ev_html = '<span style="font-size:0.8rem;color:var(--text-secondary);font-style:italic;">Keyword listed without project context</span>'
+                expl_html = 'Mentioned in skills summary without active verbs or accomplishments.'
+        else:
+            badge_html = '<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.75rem;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,0.06);color:var(--text-secondary);border:1px solid var(--border-subtle);">&#10007; Missing</span>'
+            ev_html = '<span style="font-style:italic;color:var(--text-tertiary);">No documented evidence in resume</span>'
+            expl_html = 'Secondary qualification absent; manageable via on-the-job training.'
+            gap_skills.append((skill, "Secondary Gap", "#F59E0B"))
+
+        rows.append([req_html, badge_html, ev_html, expl_html])
+
+    if rows:
+        H("""
+        <article class="bento-card fade-up-3" style="margin-top: 1rem; margin-bottom: 1.25rem;">
+          <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 8px;">
+            <div>
+              <span class="section-label" style="color: var(--accent-emerald);">QUALIFICATION AUDIT</span>
+              <h2 class="card-title">Criterion-by-Criterion Evaluation Breakdown</h2>
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-secondary);">
+              Rigorous verification of explicit resume evidence against stated job requirements
+            </div>
+          </div>
+        """)
+        _render_custom_table(
+            ["Requirement", "Evaluation Result", "Resume Evidence", "Assessment Rationale"],
+            rows,
+            col_widths=["22%", "16%", "34%", "28%"],
+        )
+        H("</article>")
+
+    # Actionable learning roadmap for genuine gaps
+    if gap_skills:
+        rec_cards = []
+        for s_name, gap_label, col_code in gap_skills[:8]:
+            advice = ACTIONABLE_SKILL_RECS.get(
+                s_name.lower(),
+                f"Complete focused project-based courses or tutorials in {_esc(s_name.title())} to develop and document verifiable portfolio evidence."
+            )
+            rec_cards.append(f"""
+            <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem 1rem; margin-bottom: 0.6rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                <strong style="font-size: 0.9rem; color: var(--text-primary);">{_esc(s_name.title())}</strong>
+                <span style="font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 4px; background: rgba(255,255,255,0.04); color: {col_code}; border: 1px solid {col_code}44;">{gap_label}</span>
+              </div>
+              <p style="font-size: 0.82rem; color: var(--text-secondary); margin: 0; line-height: 1.45;">
+                {advice}
+              </p>
+            </div>
+            """)
+
+        H(f"""
+        <article class="bento-card fade-up-4" style="margin-bottom: 1.25rem;">
+          <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 8px;">
+            <div>
+              <span class="section-label" style="color: var(--semantic-amber);">ACTIONABLE UPSKILLING ROADMAP</span>
+              <h2 class="card-title">Targeted Learning Pathways to Close Critical Deficits</h2>
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-secondary);">
+              {len(gap_skills)} strategic competencies identified for candidate development
+            </div>
+          </div>
+          <div>
+            {"".join(rec_cards)}
+          </div>
+        </article>
+        """)
+
+
+# ---- Scoring extras (only rendered when the API supplies the fields) ---------
+def _render_scoring_extras(m: dict) -> None:
+    badges = []
+    if m.get("scoring_mode"):
+        badges.append(f'<span class="score-verdict-badge neutral">Mode: {_esc(m["scoring_mode"])}</span>')
+    sem = m.get("semantic_similarity")
+    if isinstance(sem, (int, float)):
+        badges.append(f'<span class="score-verdict-badge strong">Semantic similarity: {sem * 100:.0f}%</span>')
+    if badges:
+        H('<div style="display:flex;gap:8px;flex-wrap:wrap;margin:0.75rem 0;">' + "".join(badges) + "</div>")
+
+    breakdown = m.get("score_breakdown")
+    if isinstance(breakdown, dict):
+        table_rows = []
+        for name, item in breakdown.items():
+            if not isinstance(item, dict) or "weight" not in item:
+                continue
+            val = item.get("value")
+            weight = item.get("weight", 0)
+            contrib = item.get("weighted_contribution", 0)
+
+            val_str = f"{val * 100:.1f}%" if isinstance(val, (int, float)) and val <= 1.0 else (f"{val:.2f}" if isinstance(val, (int, float)) else "n/a")
+            weight_str = f"{weight * 100:.0f}%" if isinstance(weight, (int, float)) and weight <= 1.0 else f"{weight:.2f}"
+            contrib_str = f"{contrib * 100:.1f}%" if isinstance(contrib, (int, float)) and contrib <= 1.0 else f"{contrib:.3f}"
+
+            table_rows.append([
+                f'<strong style="color: var(--text-primary);">{_esc(name.capitalize())}</strong>',
+                f'<span style="font-family: \'JetBrains Mono\', monospace; color: var(--text-secondary);">{val_str}</span>',
+                f'<span style="font-family: \'JetBrains Mono\', monospace; color: var(--text-secondary);">{weight_str}</span>',
+                f'<span style="font-family: \'JetBrains Mono\', monospace; font-weight: 600; color: var(--accent-emerald);">{contrib_str}</span>',
+            ])
+        if table_rows:
+            H("""
+            <div style="margin-top: 1.25rem; margin-bottom: 0.25rem;">
+              <span class="section-label">WEIGHTED CRITERIA CONTRIBUTION</span>
+              <h3 class="card-title" style="font-size: 1.05rem;">Score Breakdown</h3>
+            </div>
+            """)
+            _render_custom_table(["Component", "Assessed Value", "Model Weight", "Contribution"], table_rows)
+
+    rec = m.get("skill_recency")
+    if isinstance(rec, dict) and rec:
+        rec_rows = []
+        undated = False
+        for skill, info in sorted(rec.items(), key=lambda kv: -(kv[1].get("weight") or 0)):
+            year = info.get("last_used_year")
+            undated = undated or year is None
+            w = info.get("weight", 0)
+            year_str = str(year) if year is not None else "Undated"
+            weight_badge = f'<span style="font-family: \'JetBrains Mono\', monospace; font-weight: 600; color: var(--accent-emerald);">{w:.2f}</span>'
+            rec_rows.append([
+                f'<strong style="color: var(--text-primary);">{_esc(skill)}</strong>',
+                f'<span style="color: var(--text-secondary);">{year_str}</span>',
+                weight_badge,
+            ])
+        if rec_rows:
+            H("""
+            <div style="margin-top: 1.25rem; margin-bottom: 0.25rem;">
+              <span class="section-label">RECENCY DECAY BREAKDOWN</span>
+              <h3 class="card-title" style="font-size: 1.05rem;">Skill Recency Analysis</h3>
+            </div>
+            """)
+            _render_custom_table(["Skill", "Last Used Role", "Recency Factor"], rec_rows)
+            if undated:
+                H('<p style="font-size: 0.78rem; color: var(--text-tertiary); margin-top: -0.5rem; margin-bottom: 1rem;">Undated skills (not tied to a dated role) receive a neutral baseline recency weight of 0.50.</p>')
+
+
+# ---- Evidence view -------------------------------------------------------------
+def _render_evidence_view(resume_text: str, data: dict | None = None) -> None:
+    if data is None:
+        data, status, err = _call_api("POST", "/resume/evidence", json_body={"resume_text": resume_text}, timeout=30)
+    else:
+        status, err = 200, None
+    if status == 404:
+        st.info("Skill evidence is not available on this server.")
+        return
+    if err:
+        st.warning(f"Skill evidence unavailable: {err}")
+        return
+    items = {k: v for k, v in (data or {}).items() if k != "counts" and isinstance(v, dict) and "level" in v}
+    if not items:
+        return
+    counts = (data or {}).get("counts") or {}
+    for lvl in ("high_depth", "demonstrated", "listed"):
+        counts.setdefault(lvl, sum(1 for v in items.values() if v["level"] == lvl))
+    chips = []
+    for skill, info in items.items():
+        tip = _esc(info.get("evidence") or "Listed without supporting evidence")
+        if info["level"] == "high_depth":
+            chips.append(f'<span class="skill-pill matched" title="{tip}">&#9733; {_esc(skill)}</span>')
+        elif info["level"] == "demonstrated":
+            chips.append(f'<span class="skill-pill matched" title="{tip}">{_esc(skill)}</span>')
+        else:
+            chips.append(f'<span class="skill-pill missing" title="{tip}">{_esc(skill)}</span>')
+    H(f"""
+    <article class="bento-card fade-up-3" style="margin-top: 0.5rem;">
+    <span class="section-label">SKILL EVIDENCE</span>
+    <h2 class="card-title">Evidence Depth</h2>
+    <p style="font-size:0.82rem;color:var(--text-secondary);">
+    &#9733; High depth: {counts['high_depth']} &bull; Demonstrated: {counts['demonstrated']} &bull; Listed only: {counts['listed']}
+    </p>
+    <div class="skill-pills-wrap">{''.join(chips)}</div>
+    </article>
+    """)
+
+
+# ---- Identity (only when API provides it) ------------------------------------------
+def _render_identity(data: dict) -> None:
+    name, phone, links = data.get("candidate_name"), data.get("phone"), data.get("links") or {}
+    link_vals = [f"{k}: {v}" for k, v in links.items() if v] if isinstance(links, dict) else []
+    if not (name or phone or link_vals):
+        return
+    rows = []
+    if name:
+        rows.append(f"<div><strong>Candidate:</strong> {_esc(name)}</div>")
+    if phone:
+        rows.append(f"<div><strong>Phone:</strong> {_esc(phone)}</div>")
+    if link_vals:
+        rows.append("<div><strong>Links:</strong> " + " &bull; ".join(_esc(v) for v in link_vals) + "</div>")
+    H('<article class="bento-card fade-up-2" style="margin-top:0.5rem;">'
+      '<span class="section-label">CANDIDATE IDENTITY</span>' + "".join(rows) + "</article>")
+
+
+# ---- Overlay -------------------------------------------------------------------------
+def _overlay_page_html(page: dict, visible: set) -> str:
+    boxes = []
+    for b in page.get("boxes", []):
+        cat = b.get("category")
+        if cat not in visible or cat not in CATEGORY_STYLE:
+            continue
+        color, rgb = CATEGORY_STYLE[cat]
+        x0, y0, x1, y1 = b["bbox"]
+        tip = _esc(b.get("tooltip") or b.get("skill") or cat)
+        boxes.append(
+            f'<div title="{tip}" style="position:absolute;left:{x0 * 100:.3f}%;top:{y0 * 100:.3f}%;'
+            f'width:{(x1 - x0) * 100:.3f}%;height:{(y1 - y0) * 100:.3f}%;background:rgba({rgb},0.30);'
+            f'border:2px solid {color};box-sizing:border-box;cursor:help;"></div>'
+        )
+    return (
+        '<div style="position:relative;width:100%;line-height:0;">'
+        f'<img src="data:image/png;base64,{page["image_base64"]}" style="width:100%;display:block;" alt="Resume page"/>'
+        + "".join(boxes) + "</div>"
+    )
+
+
+def _render_overlay_tab() -> None:
+    H('<span class="section-label">RESUME PDF OVERLAY</span>')
+    pdf = st.file_uploader("Upload a PDF resume", type=["pdf"], key="overlay_pdf")
+    jd = st.text_area(
+        "Job description", value=st.session_state.get("jd_text", ""), height=160,
+        key="overlay_jd", placeholder="Paste the job description (or analyze one on the Job Description page)...",
+    )
+    include_sem = st.checkbox("Include semantic matches (needs the semantic model on the server)", key="overlay_sem")
+    if st.button("Build overlay", type="primary", key="overlay_run"):
+        if pdf is None or not jd.strip():
+            st.warning("Please upload a PDF resume and provide a job description.")
+        else:
+            with st.spinner("Building overlay..."):
+                data, status, err = _call_api(
+                    "POST", "/resume/overlay",
+                    files={"file": (pdf.name, pdf.getvalue(), "application/pdf")},
+                    data={"jd_text": jd, "include_semantic": str(include_sem).lower()},
+                    timeout=60,
+                )
+            if status == 404:
+                st.session_state.pop("overlay_result", None)
+                st.error("Overlay is not available on this server.")
+            elif err:
+                st.session_state.pop("overlay_result", None)
+                st.error(f"Overlay failed: {err}")
+            else:
+                st.session_state["overlay_result"] = data
+
+    res = st.session_state.get("overlay_result")
+    if not res:
+        return
+    if not res.get("has_text_layer", True):
+        st.info("This PDF looks scanned (no text layer), so no annotations could be drawn. Page images are shown.")
+    if res.get("semantic_unavailable"):
+        st.info("Semantic matching is unavailable on this server; showing skill annotations only.")
+
+    counts = res.get("counts", {})
+    legend = res.get("legend") or [{"category": c, "label": c.capitalize(), "color": CATEGORY_STYLE[c][0]} for c in CATEGORY_STYLE]
+    cols = st.columns(len(legend))
+    visible = set()
+    for col, item in zip(cols, legend):
+        cat = item.get("category")
+        with col:
+            H(f'<div style="font-size:12px;"><span style="display:inline-block;width:10px;height:10px;'
+              f'background:{_esc(item.get("color", "#999"))};border-radius:2px;margin-right:6px;"></span>'
+              f'{_esc(item.get("label", cat))} ({counts.get(cat, 0)})</div>')
+            if st.checkbox("Show", value=True, key=f"ov_show_{cat}"):
+                visible.add(cat)
+
+    pages = res.get("pages", [])
+    if not pages:
+        return
+    idx = 1
+    if len(pages) > 1:
+        idx = st.selectbox("Page", list(range(1, len(pages) + 1)), key="overlay_page")
+    page = pages[idx - 1]
+    ratio = (page.get("height") or 1) / (page.get("width") or 1)
+    components.html(_overlay_page_html(page, visible), height=int(900 * ratio) + 20, scrolling=True)
+
+
+# ---- STAR panel ----------------------------------------------------------------------
+def _resolve_resume_text(resume_text: str) -> str:
+    stored = st.session_state.get("full_resume_text") or st.session_state.get("resume_data", {}).get("extracted_text") or ""
+    preview = st.session_state.get("resume_data", {}).get("text_preview", "")
+    if stored and (resume_text == stored or (preview and resume_text == preview)
+                   or (resume_text.endswith("...") and stored.startswith(resume_text.rstrip(".").rstrip()))):
+        return stored
+    return resume_text if resume_text.strip() else stored
+
+
+def _highlight_placeholders(text: str) -> str:
+    out = _esc(text)
+    return re.sub(r"(\[[^\]]+\])", r'<mark style="background:rgba(245,158,11,0.3);color:#F59E0B;padding:0 3px;border-radius:3px;">\1</mark>', out)
+
+
+def _render_star_panel(resume_text: str, jd_text: str) -> None:
+    H('<span class="section-label">BULLET OPTIMIZER</span><h2 class="card-title">STAR bullet rewriting</h2>')
+    st.warning("Suggestions give structure only. Never invent experience, accomplishments, or metrics - "
+               "fill every placeholder with true facts, and only keep skills you have actually used.")
+    if st.button("Suggest stronger bullets", key="star_btn"):
+        if not resume_text.strip():
+            st.warning("Please provide resume text first.")
+        else:
+            payload = {"resume_text": resume_text, "max_suggestions": 5}
+            if jd_text.strip():
+                payload["jd_text"] = jd_text
+            with st.spinner("Analyzing bullets..."):
+                data, status, err = _call_api("POST", "/resume/star-rewrite", json_body=payload, timeout=30)
+            if status == 404:
+                st.info("Feature not available on this server")
+                st.session_state.pop("star_result", None)
+            elif err:
+                st.error(f"Bullet suggestions failed: {err}")
+                st.session_state.pop("star_result", None)
+            else:
+                st.session_state["star_result"] = data
+
+    res = st.session_state.get("star_result")
+    if not res:
+        return
+    suggestions = res.get("suggestions") or []
+    if not suggestions:
+        st.info("No weak bullets were found in the experience section.")
+        return
+    for i, s in enumerate(suggestions, start=1):
+        with st.expander(f"{i}. {s.get('original', '')[:90]}"):
+            star = s.get("star") or {}
+            st.markdown(f"**Original bullet:** {s.get('original', '')}")
+            st.markdown("**Reasons:** " + (", ".join(s.get("reasons") or []) or "n/a"))
+            st.markdown(f"**Target skill:** {s.get('target_skill') or 'none'}")
+            for label in ("situation", "task", "action", "result"):
+                st.markdown(f"**{label.capitalize()}:** {star.get(label, '')}")
+            H('<div style="margin-top:6px;"><strong>Rewritten bullet:</strong><br/>'
+              + _highlight_placeholders(s.get("rewritten_bullet", "")) + "</div>")
+            if s.get("requires_real_experience") is True:
+                H('<span class="score-verdict-badge partial" style="margin-top:8px;">&#9888; Only use if true</span>')
+                if s.get("honesty_note"):
+                    st.caption(s["honesty_note"])
+    if res.get("disclaimer"):
+        st.caption(res["disclaimer"])
+
+
+# ---- Anonymized screening ---------------------------------------------------------------
+def _strip_pii(obj):
+    if isinstance(obj, dict):
+        return {k: _strip_pii(v) for k, v in obj.items() if str(k).lower() not in PII_KEYS}
+    if isinstance(obj, list):
+        return [_strip_pii(v) for v in obj]
+    return obj
+
+
+def _dossier_text(d: dict) -> str:
+    for key in ("text", "dossier_text", "plain_text"):
+        if isinstance(d.get(key), str):
+            return d[key]
+    lines = []
+
+    def walk(v, indent=0):
+        pad = "  " * indent
+        if isinstance(v, dict):
+            for k, x in v.items():
+                if isinstance(x, (dict, list)):
+                    lines.append(f"{pad}{k}:")
+                    walk(x, indent + 1)
+                else:
+                    lines.append(f"{pad}{k}: {x}")
+        elif isinstance(v, list):
+            for x in v:
+                if isinstance(x, (dict, list)):
+                    walk(x, indent + 1)
+                else:
+                    lines.append(f"{pad}- {x}")
+
+    walk(d)
+    return "\n".join(lines)
+
+
+def _render_anonymized_view(resume_text: str) -> None:
+    jd = st.session_state.get("jd_text", "")
+    with st.spinner("Anonymizing resume..."):
+        anon, a_status, a_err = _call_api("POST", "/resume/anonymize", json_body={"resume_text": resume_text}, timeout=60)
+        dossier, d_status, d_err = _call_api(
+            "POST", "/resume/dossier",
+            json_body={"resume_text": resume_text, "jd_text": jd, "job_description": jd}, timeout=60,
+        )
+    H('<span class="section-label">ANONYMIZED SCREENING</span><h2 class="card-title">Redacted resume</h2>')
+    if a_status == 404:
+        st.info("Feature not available on this server")
+    elif a_err:
+        st.error(f"Anonymization failed: {a_err}")
+    elif isinstance(anon, dict):
+        red = next((anon[k] for k in ("redacted_text", "anonymized_text", "text") if isinstance(anon.get(k), str)), "")
+        st.text(red or "(no redacted text returned)")
+        counts = next((anon[k] for k in ("redaction_counts", "counts", "redactions") if isinstance(anon.get(k), dict)), None)
+        if counts:
+            t_rows = [[_esc(k.capitalize()), f'<span style="font-family: \'JetBrains Mono\', monospace; font-weight: 600; color: var(--accent-emerald);">{v}</span>'] for k, v in counts.items()]
+            _render_custom_table(["Entity Type", "Redactions Count"], t_rows, col_widths=["60%", "40%"])
+        for flag in anon.get("residual_flags") or []:
+            st.warning(f"Residual flag: {flag}")
+    if d_status == 404:
+        st.info("Feature not available on this server")
+    elif d_err:
+        st.error(f"Dossier failed: {d_err}")
+    elif isinstance(dossier, dict):
+        clean = _strip_pii(dossier)
+        c1, c2 = st.columns(2)
+        with c1:
+            st.download_button("Download dossier (JSON)", data=json.dumps(clean, indent=2, ensure_ascii=False),
+                               file_name="dossier.json", mime="application/json", use_container_width=True)
+        with c2:
+            st.download_button("Download dossier (TXT)", data=_dossier_text(clean),
+                               file_name="dossier.txt", mime="text/plain", use_container_width=True)
 
 
 # ---------------------------------------------------------------------------
@@ -620,6 +1292,7 @@ elif page == "Upload Resume":
     </section>
     """)
 
+    anon_mode = st.toggle("Anonymized screening mode", key="anon_mode")
     uploaded = st.file_uploader(
         "Drop your resume here (PDF, DOC/DOCX, or TXT)",
         type=["pdf", "docx", "doc", "txt"],
@@ -632,7 +1305,7 @@ elif page == "Upload Resume":
                 resp = requests.post(
                     f"{API_BASE}/resume/upload",
                     files={"file": (uploaded.name, uploaded.getvalue(), uploaded.type)},
-                    timeout=30,
+                    timeout=60,
                 )
                 if resp.status_code == 200:
                     data = resp.json()
@@ -642,7 +1315,7 @@ elif page == "Upload Resume":
                     st.session_state["resume_text"] = full_text
                     st.session_state.pop("role_cache", None)
                     
-                    st.success(f"Parsed {uploaded.name} — {data['char_count']:,} characters processed.")
+                    st.success(f"Parsed {'resume' if anon_mode else uploaded.name} — {data['char_count']:,} characters processed.")
 
                     # Summary cards
                     m1, m2, m3, m4 = st.columns(4)
@@ -683,7 +1356,7 @@ elif page == "Upload Resume":
                         </article>
                         """)
                     with m4:
-                        single_email = data.get("email")
+                        single_email = None if anon_mode else data.get("email")
                         if single_email:
                             import urllib.parse
                             _s = urllib.parse.quote("Interview Opportunity / Job Application")
@@ -691,6 +1364,8 @@ elif page == "Upload Resume":
                             email_box = f'<a href="{_m_url}" target="_blank" style="color: var(--accent-emerald); text-decoration: none; word-break: break-all; font-weight: 500;">✉️ {single_email}</a>'
                         else:
                             email_box = '<span style="color: var(--text-tertiary);">Not detected</span>'
+                        if anon_mode:
+                            email_box = '<span style="color: var(--text-tertiary);">Hidden (anonymized)</span>'
                         H(f"""
                         <article class="bento-card fade-up-4">
                         <span class="section-label">CONTACT EMAIL</span>
@@ -710,11 +1385,17 @@ elif page == "Upload Resume":
                     </article>
                     """)
 
+                    if anon_mode:
+                        _render_anonymized_view(full_text)
+                    else:
+                        _render_identity(data)
+
                     # Role recommendations (own spinner + graceful error handling)
                     _render_role_recommendations(full_text)
 
-                    with st.expander("Document preview text"):
-                        st.text(data.get("extracted_text") or data["text_preview"])
+                    if not anon_mode:
+                        with st.expander("Document preview text"):
+                            st.text(data.get("extracted_text") or data["text_preview"])
 
                 else:
                     err_msg = resp.json().get("detail", resp.text) if resp.headers.get("content-type") == "application/json" else resp.text
@@ -841,6 +1522,15 @@ elif page == "Match & Analysis":
     </section>
     """)
 
+    _match_view = st.radio(
+        "Match view", ["Match & gap analysis", "Resume PDF overlay"],
+        horizontal=True, label_visibility="collapsed", key="match_view",
+    )
+    if _match_view == "Resume PDF overlay":
+        _render_overlay_tab()
+        _render_footer()
+        st.stop()
+
     col_l, col_r = st.columns(2)
     with col_l:
         H('<span class="section-label">CANDIDATE SOURCE</span>')
@@ -866,6 +1556,21 @@ elif page == "Match & Analysis":
             placeholder="Paste job description or analyze via Job Description page...",
         )
 
+    col_mode, col_space = st.columns([2.5, 1.5])
+    with col_mode:
+        scoring_mode = st.selectbox(
+            "Scoring Methodology",
+            ["proposal", "composite", "hybrid", "skills_only"],
+            format_func=lambda x: {
+                "proposal": "Weighted Comprehensive (Skills 40%, Semantic 40%, Experience 10%, Education 10%)",
+                "composite": "Composite Multi-Factor (Skills 40%, Semantic 30%, Experience 15%, Recency 15%)",
+                "hybrid": "Hybrid Weighted (Skills 70%, Semantic 30%)",
+                "skills_only": "Taxonomy Overlap Only (100% Skills)",
+            }[x],
+            index=0,
+            help="Select the scoring algorithm. Proposal and Composite evaluate the complete set of weighted criteria."
+        )
+
     if st.button("Run Match & Gap Analysis", type="primary"):
         stored_full = (
             st.session_state.get("full_resume_text")
@@ -889,8 +1594,8 @@ elif page == "Match & Analysis":
                 try:
                     match_resp = requests.post(
                         f"{API_BASE}/match",
-                        json={"resume_text": analysis_resume_text, "job_description": jd_text},
-                        timeout=30,
+                        json={"resume_text": analysis_resume_text, "job_description": jd_text, "mode": scoring_mode},
+                        timeout=60,
                     )
                     gap_resp = requests.get(
                         f"{API_BASE}/skill-gap",
@@ -908,15 +1613,33 @@ elif page == "Match & Analysis":
                         g = gap_resp.json() if gap_resp.status_code == 200 else {}
                         r = rec_resp.json() if rec_resp.status_code == 200 else {}
 
-                        score = m["skill_overlap_score"]
+                        # Call evidence API once to feed Criteria Breakdown and Evidence Depth
+                        ev_data, _, _ = _call_api("POST", "/resume/evidence", json_body={"resume_text": analysis_resume_text}, timeout=30)
+
+                        score = m["final_score"] if m.get("final_score") is not None else m["skill_overlap_score"]
                         req_matched = m.get("required_matched", [])
-                        total_req = m.get("total_required", len(req_matched))
                         pref_matched = m.get("preferred_matched", [])
-                        total_pref = m.get("total_preferred", len(pref_matched))
-                        req_missing = g.get("required_gap", m.get("required_missing", []))
-                        pref_missing = g.get("preferred_gap", m.get("preferred_missing", []))
-                        recs = r.get("recommended_to_learn", [])
-                        total_gaps = g.get("gap_count", len(req_missing) + len(pref_missing))
+                        req_missing = m.get("required_missing", [])
+                        pref_missing = m.get("preferred_missing", [])
+
+                        if not req_missing and g.get("required_gap"):
+                            req_missing = g.get("required_gap")
+                        if not pref_missing and g.get("preferred_gap"):
+                            pref_missing = g.get("preferred_gap")
+
+                        total_req = m.get("total_required", len(req_matched) + len(req_missing))
+                        if total_req < len(req_matched) + len(req_missing):
+                            total_req = len(req_matched) + len(req_missing)
+
+                        total_pref = m.get("total_preferred", len(pref_matched) + len(pref_missing))
+                        if total_pref < len(pref_matched) + len(pref_missing):
+                            total_pref = len(pref_matched) + len(pref_missing)
+
+                        # Strictly consistent gap and recommendation counts
+                        total_gaps = len(req_missing) + len(pref_missing)
+                        recs = req_missing + [s for s in pref_missing if s not in req_missing]
+                        if not recs and r.get("recommended_to_learn"):
+                            recs = r.get("recommended_to_learn")
 
                         H('<div style="height: 1.5rem;"></div>')
 
@@ -924,8 +1647,57 @@ elif page == "Match & Analysis":
                         # Row 1: Score Card (left, tall) + Summary & Skills (right)
                         bento_left, bento_right = st.columns([4.2, 7.8], gap="large")
 
+                        # Evidence-backed separation of demonstrated vs unverified skills
+                        req_demonstrated = []
+                        req_unverified = []
+                        for s in req_matched:
+                            ev_info = (ev_data or {}).get(s, {})
+                            lvl = ev_info.get("level", "demonstrated")
+                            if lvl in ("high_depth", "demonstrated"):
+                                req_demonstrated.append(s)
+                            else:
+                                req_unverified.append(s)
+
+                        # Experience evaluation details
+                        exp_analysis = m.get("experience_analysis") or {}
+                        req_years = exp_analysis.get("required_years")
+                        cand_years = exp_analysis.get("candidate_years", 0.0)
+                        exp_met = exp_analysis.get("is_met", (cand_years >= req_years if req_years else True))
+                        exp_status = "Met" if exp_met else ("Partial" if (cand_years > 0 or exp_analysis.get("has_internships")) else "Missing")
+
+                        # Separate Eligibility Evaluation (from backend or resilient fallback)
+                        elig_data = m.get("eligibility") or {}
+                        is_eligible = elig_data.get("is_eligible")
+                        if is_eligible is None:
+                            is_eligible = bool(exp_met and len(req_missing) == 0)
+
+                        eligibility_status = elig_data.get("status")
+                        if not eligibility_status:
+                            eligibility_status = "Meets All Mandatory Requirements" if is_eligible else "Does Not Meet All Mandatory Requirements"
+
+                        mandatory_gaps = elig_data.get("mandatory_gaps", [])
+                        if not mandatory_gaps:
+                            if not exp_met and req_years:
+                                mandatory_gaps.append(f"Experience deficit: {cand_years:.1f} yr(s) actual vs {req_years} yr(s) required")
+                            for sm in req_missing:
+                                mandatory_gaps.append(f"Missing mandatory skill: {sm.title()}")
+
+                        # Consistent criteria and gap totals matching detailed breakdown
+                        critical_gaps_count = len(req_missing) + (1 if not exp_met and req_years else 0)
+                        total_gaps = critical_gaps_count + len(pref_missing)
+
                         with bento_left:
-                            _render_score_ring(score, len(req_matched), total_req, len(pref_matched), total_pref)
+                            _render_score_ring(
+                                score,
+                                len(req_demonstrated),
+                                total_req,
+                                len(pref_matched),
+                                total_pref,
+                                unverified_req=len(req_unverified),
+                                is_eligible=is_eligible,
+                                eligibility_status=eligibility_status,
+                                mandatory_gaps=mandatory_gaps,
+                            )
 
                         with bento_right:
                             H(f"""
@@ -936,31 +1708,34 @@ elif page == "Match & Analysis":
                             <h2 class="card-title">Evaluation Breakdown</h2>
                             </div>
                             <div style="font-size: 12px; color: var(--text-secondary);">
-                            <span style="font-weight: 600; color: var(--accent-emerald);">{len(req_matched)}</span> / {total_req} criteria
+                            <span style="font-weight: 600; color: var(--accent-emerald);">{len(req_demonstrated)}</span> / {total_req} verified skills
                             </div>
                             </div>
                             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 1rem 0;">
                             <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem;">
                             <span class="section-label">MANDATORY MET</span>
                             <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.35rem; font-weight: 600; color: var(--accent-emerald);">
-                            {len(req_matched)}
+                            {len(req_demonstrated)}
                             </div>
+                            <div style="font-size: 0.72rem; color: var(--text-tertiary); margin-top: 2px;">Demonstrated with evidence</div>
                             </div>
                             <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem;">
-                            <span class="section-label">PREFERRED MET</span>
+                            <span class="section-label">UNVERIFIED (CLAIMED)</span>
                             <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.35rem; font-weight: 600; color: var(--semantic-amber);">
-                            {len(pref_matched)}
+                            {len(req_unverified)}
                             </div>
+                            <div style="font-size: 0.72rem; color: var(--text-tertiary); margin-top: 2px;">Listed without context</div>
                             </div>
                             <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0.85rem;">
-                            <span class="section-label">TOTAL GAPS</span>
+                            <span class="section-label">CRITICAL GAPS</span>
                             <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.35rem; font-weight: 600; color: var(--semantic-rose);">
-                            {total_gaps}
+                            {critical_gaps_count}
+                            </div>
+                            <div style="font-size: 0.72rem; color: var(--text-tertiary); margin-top: 2px;">Missing skills & exp</div>
                             </div>
                             </div>
-                            </div>
-                            <span class="section-label" style="margin-top: 0.75rem;">VERIFIED CANDIDATE SKILLS</span>
-                            {_tags(req_matched, "matched")}
+                            <span class="section-label" style="margin-top: 0.5rem;">VERIFIED CANDIDATE SKILLS</span>
+                            {_tags(req_demonstrated, "matched")}
                             </article>
                             """)
 
@@ -972,22 +1747,24 @@ elif page == "Match & Analysis":
                             H(f"""
                             <article class="bento-card fade-up-3" style="min-height: 240px;">
                             <span class="section-label" style="color: var(--accent-emerald);">VERIFIED STRENGTHS</span>
-                            <h3 class="card-title">Required Met ({len(req_matched)})</h3>
+                            <h3 class="card-title">Required Met ({len(req_demonstrated)})</h3>
                             <p style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
-                            Mandatory competencies documented in candidate background:
+                            Mandatory competencies documented with active evidence:
                             </p>
-                            {_tags(req_matched, "matched")}
+                            {_tags(req_demonstrated, "matched")}
                             </article>
                             """)
 
                         with c_gap:
+                            exp_gap_banner = f'<div style="margin-bottom:0.5rem;padding:4px 8px;border-radius:6px;background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.25);font-size:0.78rem;color:var(--semantic-rose);font-weight:500;">&#9888; Experience Deficit: {cand_years:.1f} yr(s) actual vs {req_years} yr(s) required ({exp_status})</div>' if (not exp_met and req_years) else ''
                             H(f"""
                             <article class="bento-card fade-up-4" style="min-height: 240px;">
                             <span class="section-label" style="color: var(--semantic-rose);">CRITICAL GAPS</span>
-                            <h3 class="card-title">Missing Required ({len(req_missing)})</h3>
+                            <h3 class="card-title">Critical Gaps ({critical_gaps_count})</h3>
                             <p style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
-                            Essential prerequisites absent from candidate experience:
+                            Essential prerequisites absent or unmet:
                             </p>
+                            {exp_gap_banner}
                             {_tags(req_missing, "missing")}
                             </article>
                             """)
@@ -1003,6 +1780,10 @@ elif page == "Match & Analysis":
                             {_tags(recs, "preferred")}
                             </article>
                             """)
+
+                        _render_criteria_breakdown(m, evidence_data=ev_data)
+                        _render_scoring_extras(m)
+                        _render_evidence_view(analysis_resume_text, data=ev_data)
 
                         # Role recommendations for the same resume text
                         _render_role_recommendations(analysis_resume_text)
@@ -1026,6 +1807,9 @@ elif page == "Match & Analysis":
                         st.error(f"Match API returned error {match_resp.status_code}: {match_resp.text}")
                 except requests.ConnectionError:
                     st.error("Cannot connect to backend service. Please ensure the backend is running.")
+
+    H('<div style="height: 1.5rem;"></div>')
+    _render_star_panel(_resolve_resume_text(resume_text), jd_text)
 
     _render_footer()
 

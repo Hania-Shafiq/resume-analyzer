@@ -1,21 +1,21 @@
 resume_id,resume_file,true_skills
-resume_001,resume_001_aisha_patel.pdf,
-resume_002,resume_002_james_chen.pdf,
-resume_003,resume_003_maria_garcia.pdf,
-resume_004,resume_004_david_kim.pdf,
-resume_005,resume_005_sarah_johnson.pdf,
-resume_006,resume_006_omar_hassan.pdf,
-resume_007,resume_007_emma_wilson.pdf,
-resume_008,resume_008_raj_patel.pdf,
-resume_009,resume_009_lisa_zhang.docx,
-resume_010,resume_010_carlos_rodriguez.docx,
-resume_011,resume_011_nina_petrov.docx,
-resume_012,resume_012_ahmed_ali.docx,
-resume_013,resume_013_yuki_tanaka.docx,
-resume_014,resume_014_priya_sharma.docx,
-resume_015,resume_015_michael_brown.docx,
-resume_016,resume_016_fatima_khan.docx,
-resume_017,resume_017_alex_murphy.txt,
-resume_018,resume_018_sofia_costa.txt,
-resume_019,resume_019_kenji_watanabe.txt,
-resume_020,resume_020_grace_okonkwo.txt,
+resume_001,resume_001_aisha_patel.pdf,python;fastapi;docker;postgresql;git;ci/cd
+resume_002,resume_002_james_chen.pdf,python;pytorch;tensorflow;machine learning;docker;aws
+resume_003,resume_003_maria_garcia.pdf,react;typescript;node.js;mongodb;git
+resume_004,resume_004_david_kim.pdf,java;python;kubernetes;docker;aws;redis;postgresql;ci/cd
+resume_005,resume_005_sarah_johnson.pdf,python;django;flask;postgresql;redis;elasticsearch;docker
+resume_006,resume_006_omar_hassan.pdf,aws;kubernetes;docker;ci/cd;python;elasticsearch
+resume_007,resume_007_emma_wilson.pdf,python;fastapi;machine learning;postgresql;docker
+resume_008,resume_008_raj_patel.pdf,react;node.js;typescript;mongodb;redis;docker
+resume_009,resume_009_lisa_zhang.docx,python;tensorflow;pytorch;machine learning;aws;docker
+resume_010,resume_010_carlos_rodriguez.docx,python;fastapi;docker;kubernetes;postgresql;aws;git;ci/cd
+resume_011,resume_011_nina_petrov.docx,react;typescript;node.js;python;mongodb;docker;git
+resume_012,resume_012_ahmed_ali.docx,python;django;fastapi;postgresql;redis;docker;aws
+resume_013,resume_013_yuki_tanaka.docx,java;python;kubernetes;docker;aws;ci/cd;redis;mongodb;elasticsearch
+resume_014,resume_014_priya_sharma.docx,python;machine learning;tensorflow;fastapi;postgresql
+resume_015,resume_015_michael_brown.docx,react;node.js;typescript;mongodb;python;docker
+resume_016,resume_016_fatima_khan.docx,python;flask;postgresql;git
+resume_017,resume_017_alex_murphy.txt,python;fastapi;docker;kubernetes;postgresql;aws;git;ci/cd;redis
+resume_018,resume_018_sofia_costa.txt,python;machine learning;pytorch;tensorflow;aws;docker;fastapi
+resume_019,resume_019_kenji_watanabe.txt,react;typescript;node.js;python;mongodb;redis;docker;kubernetes
+resume_020,resume_020_grace_okonkwo.txt,python;django;postgresql;docker

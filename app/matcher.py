@@ -226,3 +226,26 @@ def semantic_similarity(
         "similarity_matrix": sim_matrix,
         "best_matches": best_matches,
     }
+
+
+def normalize_similarity(cos: float, low: float = 0.15, high: float = 0.65) -> float:
+    """Normalize cosine similarity into a [0.0, 1.0] range, clipped at bounds.
+
+    Parameters
+    ----------
+    cos : float
+        Raw cosine similarity score.
+    low : float
+        Lower threshold for zero similarity (default: 0.15).
+    high : float
+        Upper threshold for saturated similarity (default: 0.65).
+
+    Returns
+    -------
+    float
+        Normalized score clipped to [0.0, 1.0].
+    """
+    if high <= low:
+        return 0.0
+    return float(np.clip((cos - low) / (high - low), 0.0, 1.0))
+
