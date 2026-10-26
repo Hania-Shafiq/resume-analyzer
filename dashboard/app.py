@@ -853,14 +853,21 @@ def _overlay_page_html(page: dict, visible: set) -> str:
         x0, y0, x1, y1 = b["bbox"]
         tip = _esc(b.get("tooltip") or b.get("skill") or cat)
         boxes.append(
-            f'<div title="{tip}" style="position:absolute;left:{x0 * 100:.3f}%;top:{y0 * 100:.3f}%;'
+            f'<div class="overlay-box" title="{tip}" style="left:{x0 * 100:.3f}%;top:{y0 * 100:.3f}%;'
             f'width:{(x1 - x0) * 100:.3f}%;height:{(y1 - y0) * 100:.3f}%;background:rgba({rgb},0.30);'
-            f'border:2px solid {color};box-sizing:border-box;cursor:help;"></div>'
+            f'border:2px solid {color};"></div>'
         )
     return (
+        '<!DOCTYPE html><html><head><meta charset="utf-8">'
+        '<style>'
+        'body { margin:0; padding:0; overflow-x:hidden; background:transparent; }'
+        '.overlay-box { position:absolute; box-sizing:border-box; cursor:help; '
+        '  transition:background 0.15s ease, filter 0.15s ease; border-radius:2px; }'
+        '.overlay-box:hover { filter:brightness(1.3) drop-shadow(0 0 4px rgba(255,255,255,0.4)); z-index:10; }'
+        '</style></head><body>'
         '<div style="position:relative;width:100%;line-height:0;">'
         f'<img src="data:image/png;base64,{page["image_base64"]}" style="width:100%;display:block;" alt="Resume page"/>'
-        + "".join(boxes) + "</div>"
+        + "".join(boxes) + "</div></body></html>"
     )
 
 
@@ -907,15 +914,98 @@ def _render_overlay_tab() -> None:
     for col, item in zip(cols, legend):
         cat = item.get("category")
         with col:
-            H(f'<div style="font-size:12px;"><span style="display:inline-block;width:10px;height:10px;'
+            H(f'<div style="font-size:12px;font-weight:600;"><span style="display:inline-block;width:10px;height:10px;'
               f'background:{_esc(item.get("color", "#999"))};border-radius:2px;margin-right:6px;"></span>'
               f'{_esc(item.get("label", cat))} ({counts.get(cat, 0)})</div>')
-            if st.checkbox("Show", value=True, key=f"ov_show_{cat}"):
+            if st.checkbox("Show on PDF", value=True, key=f"ov_show_{cat}"):
                 visible.add(cat)
 
     pages = res.get("pages", [])
     if not pages:
         return
+
+    # Categorized skill breakdown details across pages
+    cat_items = {"required": [], "preferred": [], "semantic": [], "unverified": []}
+    for p in pages:
+        p_no = p.get("page", 1)
+        for b in p.get("boxes", []):
+            c = b.get("category")
+            if c in cat_items:
+                cat_items[c].append({
+                    "skill": b.get("skill"),
+                    "text": b.get("text"),
+                    "tooltip": b.get("tooltip", ""),
+                    "page": p_no,
+                })
+
+    # Expandable details sections
+    st.markdown('<div style="margin-top:0.75rem;margin-bottom:0.25rem;"></div>', unsafe_allow_html=True)
+
+    # 1. Required Skills
+    req_list = cat_items["required"]
+    with st.expander(f"🟢 Show Required Skills ({counts.get('required', 0)})", expanded=False):
+        if req_list:
+            grouped = {}
+            for item in req_list:
+                sk = item["skill"] or "unnamed"
+                grouped.setdefault(sk, []).append(item)
+            for sk, items in sorted(grouped.items()):
+                tooltips = items[0]["tooltip"]
+                pages_found = ", ".join(f"Page {p}" for p in sorted(list(set(it["page"] for it in items))))
+                st.markdown(f"**{sk.title()}** &nbsp;&bull;&nbsp; *{len(items)} occurrence(s) on {pages_found}*")
+                st.caption(f"Verification: {tooltips}")
+                matched_snippets = list(dict.fromkeys(it['text'] for it in items if it.get('text')))
+                if matched_snippets:
+                    st.markdown(f"> Matched text: `{'` &nbsp;|&nbsp; `'.join(matched_snippets[:3])}`")
+        else:
+            st.info("No required skills with verified evidence detected on this resume.")
+
+    # 2. Preferred Skills
+    pref_list = cat_items["preferred"]
+    with st.expander(f"🟡 Show Preferred Skills ({counts.get('preferred', 0)})", expanded=False):
+        if pref_list:
+            grouped = {}
+            for item in pref_list:
+                sk = item["skill"] or "unnamed"
+                grouped.setdefault(sk, []).append(item)
+            for sk, items in sorted(grouped.items()):
+                tooltips = items[0]["tooltip"]
+                pages_found = ", ".join(f"Page {p}" for p in sorted(list(set(it["page"] for it in items))))
+                st.markdown(f"**{sk.title()}** &nbsp;&bull;&nbsp; *{len(items)} occurrence(s) on {pages_found}*")
+                st.caption(f"Verification: {tooltips}")
+                matched_snippets = list(dict.fromkeys(it['text'] for it in items if it.get('text')))
+                if matched_snippets:
+                    st.markdown(f"> Matched text: `{'` &nbsp;|&nbsp; `'.join(matched_snippets[:3])}`")
+        else:
+            st.info("No preferred skills with verified evidence detected on this resume.")
+
+    # 3. Semantic Match
+    sem_list = cat_items["semantic"]
+    with st.expander(f"🔵 Show Semantic Match ({counts.get('semantic', 0)})", expanded=False):
+        if sem_list:
+            for i, item in enumerate(sem_list, 1):
+                p_no = item["page"]
+                st.markdown(f"**Match #{i}** (Page {p_no})")
+                st.markdown(f"> \"{item['text']}\"")
+                st.caption(f"{item['tooltip']}")
+        else:
+            st.info("No semantic sentence matches detected.")
+
+    # 4. Unverified (Listed Only)
+    unv_list = cat_items["unverified"]
+    with st.expander(f"🔴 Show Unverified (Listed Only) ({counts.get('unverified', 0)})", expanded=False):
+        if unv_list:
+            grouped = {}
+            for item in unv_list:
+                sk = item["skill"] or "unnamed"
+                grouped.setdefault(sk, []).append(item)
+            for sk, items in sorted(grouped.items()):
+                pages_found = ", ".join(f"Page {p}" for p in sorted(list(set(it["page"] for it in items))))
+                st.markdown(f"**{sk.title()}** &nbsp;&bull;&nbsp; *{len(items)} occurrence(s) on {pages_found}*")
+                st.caption("Status: Listed only — no supporting contextual evidence (action verbs, metrics, or outcomes) detected.")
+        else:
+            st.success("All extracted skills have verified supporting evidence!")
+
     idx = 1
     if len(pages) > 1:
         idx = st.selectbox("Page", list(range(1, len(pages) + 1)), key="overlay_page")
