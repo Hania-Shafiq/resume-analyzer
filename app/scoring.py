@@ -80,6 +80,13 @@ DEGREE_RANKS: dict[str, int] = {
     "associate": 2,
     "high school": 1,
     "secondary": 1,
+    "intermediate": 1,
+    "matric": 1,
+    "hssc": 1,
+    "ssc": 1,
+    "fsc": 1,
+    "a-level": 1,
+    "o-level": 1,
 }
 
 

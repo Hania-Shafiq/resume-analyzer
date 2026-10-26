@@ -1344,8 +1344,9 @@ elif page == "Upload Resume":
                         </article>
                         """)
                     with m3:
-                        edu = data["education"]
-                        deg = edu[0]["degree"] if edu else "None listed"
+                        edu = data.get("education") or []
+                        _deg_order = {"phd": 5, "master's": 4, "masters": 4, "bachelor's": 3, "bachelors": 3, "associate": 2, "high school": 1}
+                        deg = max(edu, key=lambda e: _deg_order.get(str(e.get("degree", "")).lower(), 0)).get("degree", "None listed") if edu else "None listed"
                         H(f"""
                         <article class="bento-card fade-up-3">
                         <span class="section-label">HIGHEST DEGREE</span>
@@ -1467,8 +1468,9 @@ elif page == "Job Description":
                             </article>
                             """)
                         with c4:
-                            edu = d["education_requirement"]
-                            deg = edu[0]["degree"] if edu else "None"
+                            edu = d.get("education_requirement") or []
+                            _deg_order = {"phd": 5, "master's": 4, "masters": 4, "bachelor's": 3, "bachelors": 3, "associate": 2, "high school": 1}
+                            deg = max(edu, key=lambda e: _deg_order.get(str(e.get("degree", "")).lower(), 0)).get("degree", "None") if edu else "None"
                             H(f"""
                             <article class="bento-card fade-up-4">
                             <span class="section-label">EDUCATION</span>
@@ -1804,7 +1806,24 @@ elif page == "Match & Analysis":
                                     """)
 
                     else:
-                        st.error(f"Match API returned error {match_resp.status_code}: {match_resp.text}")
+                        if match_resp.status_code == 502:
+                            st.error(
+                                "⚠️ **502 Bad Gateway — Backend Service Temporarily Unavailable**\n\n"
+                                "Your cloud backend returned error 502. This usually happens because:\n"
+                                "1. **Deployment in Progress**: A new commit was recently pushed to GitHub and Render is rebuilding/deploying (takes 2–4 minutes).\n"
+                                "2. **Server Cold Start**: Free tier servers sleep when inactive and take 60–90 seconds to wake up.\n"
+                                "3. **Memory Limit (OOM)**: Free hosting (512 MB RAM) can run out of memory when loading transformer models in **Weighted Comprehensive** mode.\n\n"
+                                "💡 **Quick Fixes:**\n"
+                                "- **Wait 1–2 minutes** for the deployment to finish, then click **Run Match & Gap Analysis** again.\n"
+                                "- Or change **Scoring Methodology** above to **Taxonomy Overlap Only (100% Skills)** (lightweight & uses minimal RAM)."
+                            )
+                        elif match_resp.status_code in (503, 504):
+                            st.error(
+                                f"⏳ **Backend Timeout / Unavailable ({match_resp.status_code})**: "
+                                "The server took too long to respond. Please wait 1 minute and retry."
+                            )
+                        else:
+                            st.error(f"Match API returned error {match_resp.status_code}: {match_resp.text}")
                 except requests.ConnectionError:
                     st.error("Cannot connect to backend service. Please ensure the backend is running.")
 
