@@ -278,26 +278,125 @@ def skill_category(canonical_name: str) -> str | None:
 # Education extraction
 # ---------------------------------------------------------------------------
 
+DEGREE_ORDER: dict[str, int] = {
+    "PhD": 5,
+    "Master's": 4,
+    "Bachelor's": 3,
+    "Associate": 2,
+    "High School": 1,
+}
+
+# Software, tools, and technical terms starting with "MS" that are NOT degrees
+_MS_FALSE_POSITIVES = (
+    r"(?:project|office|excel|word|powerpoint|sql|access|azure|teams|visio|dynamics|"
+    r"365|windows|visual\s*studio|dos|paint|fabric|copilot|forms|exchange|sharepoint|"
+    r"intune|defender|planner|onenote|onedrive|graph)"
+)
+
 # Ordered from most to least specific so the first match wins
 _DEGREE_PATTERNS: list[tuple[str, str]] = [
     # PhD
-    (r"\b(ph\.?\s*d\.?|doctor(?:ate)?(?: of philosophy)?)\b", "PhD"),
+    (r"\b(?:ph\.?\s*d\.?|doctor(?:ate)?(?:\s+of\s+philosophy)?|d\.?phil\.?)(?!\w)", "PhD"),
     # Master's
-    (r"\b(m\.?\s*(?:sc|s|tech|eng|ba|b\.?a)\.?|master(?:'s)?(?: of (?:science|arts|engineering|technology|business))?|mba)\b", "Master's"),
+    (
+        r"\b(?:"
+        r"master(?:'s)?(?:\s+degree)?(?:\s+of\s+(?:science|arts|engineering|technology|business|applied\s+science|fine\s+arts|philosophy|administration))?\b"
+        r"|masters(?:\s+degree)?\b"
+        r"|m\.?\s*sc\.?(?!\w)"
+        r"|m\.?\s*tech\.?(?!\w)"
+        r"|m\.?\s*eng\.?(?!\w)"
+        r"|m\.?\s*phil\.?(?!\w)"
+        r"|m\.?\s*b\.?a\.?(?!\w)"
+        r"|mba\b"
+        r"|emba\b"
+        r"|magister\b"
+        r"|m\.s\.(?!\w)"
+        r"|m\.s(?=\s+(?:in|of|degree|\(|[-–/]|,\s*[a-z])|\s*$)"
+        r"|(?:ms\s+(?:in|of|degree)\b(?!\s*" + _MS_FALSE_POSITIVES + r"\b))"
+        r"|(?:ms\s*[-–/]\s*[a-z]+)"
+        r"|(?:ms\s*,\s*[a-z]+)"
+        r"|(?:ms\s*\([a-z\s]+\))"
+        r"|(?:degree\s*:\s*ms\b)"
+        r"|(?:b\.?s\.?\s*/\s*m\.?s\.?(?!\w))"
+        r")",
+        "Master's",
+    ),
     # Bachelor's
-    (r"\b(b\.?\s*(?:sc|s|tech|eng|ba|e|cs|com)\.?|bachelor(?:'s)?(?: of (?:science|arts|engineering|technology|commerce))?|undergraduate)\b", "Bachelor's"),
+    (
+        r"\b(?:"
+        r"bachelor(?:'s)?(?:\s+degree)?(?:\s+of\s+(?:science|arts|engineering|technology|commerce|business|applied\s+science|fine\s+arts|computer\s+applications|architecture))?\b"
+        r"|bachelors(?:\s+degree)?\b"
+        r"|undergraduate(?:\s+degree)?\b"
+        r"|b\.?\s*sc\.?(?!\w)"
+        r"|b\.?\s*tech\.?(?!\w)"
+        r"|b\.?\s*eng\.?(?!\w)"
+        r"|b\.?\s*com\.?(?!\w)"
+        r"|b\.?\s*ba\.?(?!\w)"
+        r"|b\.?\s*ca\.?(?!\w)"
+        r"|bscs\b"
+        r"|bsit\b"
+        r"|bsse\b"
+        r"|bsme\b"
+        r"|bsee\b"
+        r"|bce\b"
+        r"|b\.s\.(?!\w)"
+        r"|b\.e\.(?!\w)"
+        r"|b\.s(?=\s+(?:in|of|degree|\(|[-–/]|,\s*[a-z])|\s*$)"
+        r"|b\.e(?=\s+(?:in|of|degree|\(|[-–/]|,\s*[a-z])|\s*$)"
+        r"|(?:bs\s+(?:in|of|degree)\b)"
+        r"|(?:bs\s*[-–/]\s*[a-z]+)"
+        r"|(?:bs\s*,\s*[a-z]+)"
+        r"|(?:bs\s*\([a-z\s]+\))"
+        r"|(?:be\s+(?:in|of|degree)\b)"
+        r"|(?:be\s*[-–/]\s*[a-z]+)"
+        r"|(?:be\s*,\s*[a-z]+)"
+        r"|(?:be\s*\([a-z\s]+\))"
+        r"|(?:degree\s*:\s*b[se]\b)"
+        r")",
+        "Bachelor's",
+    ),
     # Associate
-    (r"\b(associate(?:'s)?(?: degree)?|a\.?\s*s\.?|a\.?\s*a\.?)\b", "Associate"),
+    (
+        r"\b(?:"
+        r"associate(?:'s)?\s+degree\b"
+        r"|associate\s+of\s+(?:science|arts|applied\s+science|business)\b"
+        r"|a\.s\.(?!\w)"
+        r"|a\.a\.(?!\w)"
+        r"|(?:as\s+degree\b)"
+        r")",
+        "Associate",
+    ),
     # High School
-    (r"\b(high school diploma|secondary school|hssc|matric(?:ulation)?|a-levels?|o-levels?|ssc)\b", "High School"),
+    (
+        r"\b(?:"
+        r"high\s+school(?:\s+diploma)?\b"
+        r"|secondary\s+school\b"
+        r"|higher\s+secondary\b"
+        r"|intermediate(?:\s*\((?:pre-engineering|pre-medical|ics|general\s+science|commerce|arts)\))?"
+        r"|f\.?sc\.?(?!\w)"
+        r"|f\.?a\.?(?!\w)"
+        r"|hssc\b"
+        r"|matric(?:ulation)?\b"
+        r"|a-levels?\b"
+        r"|o-levels?\b"
+        r"|ssc\b"
+        r")",
+        "High School",
+    ),
 ]
 
 _COMPILED_DEGREE = [(re.compile(pat, re.IGNORECASE), label) for pat, label in _DEGREE_PATTERNS]
 
 # Common fields of study to extract alongside degree
-_FIELD_PATTERN = re.compile(
-    r"\b(?:in|of)\s+([A-Z][a-zA-Z\s&]+?)(?:\s*(?:from|at|,|\.|\n|$))",
-    re.MULTILINE,
+_FIELD_IN_PATTERN = re.compile(
+    r"\bin\s+([A-Z][a-zA-Z\s&]+?)(?:\s+(?:from|at)\b|\s*[,.\n(]|$)",
+)
+_FIELD_OF_PATTERN = re.compile(
+    r"\bof\s+([A-Z][a-zA-Z\s&]+?)(?:\s+(?:from|at)\b|\s*[,.\n(]|$)",
+)
+_SKILL_HEADER_PREFIX_RE = re.compile(
+    r"^\s*(?:(?:technical\s+)?skills?|tools?|frameworks?|languages?|libraries?|project\s+management|web\s+development|data\s+(?:analytics|engineering)|other|soft\s+skills)\s*:",
+    re.IGNORECASE,
 )
 
 
@@ -323,7 +422,8 @@ def extract_education(text: str) -> list[EducationEntry]:
     Returns
     -------
     list[EducationEntry]
-        One entry per detected degree. Deduplicated by degree level.
+        One entry per detected degree. Deduplicated by degree level and
+        sorted in descending order of educational hierarchy.
     """
     if not isinstance(text, str):
         raise TypeError(f"Expected str, got {type(text).__name__}.")
@@ -337,13 +437,25 @@ def extract_education(text: str) -> list[EducationEntry]:
         if not line_stripped:
             continue
 
+        # Skip explicit skill/tool section header lines (e.g. "Project Management: MS Project, Agile")
+        if _SKILL_HEADER_PREFIX_RE.match(line_stripped):
+            continue
+
         for compiled_pat, degree_label in _COMPILED_DEGREE:
             if compiled_pat.search(line_stripped):
                 if degree_label in seen_degrees:
                     break  # already captured this degree level
 
-                # Try to find field of study in the same line
-                field_match = _FIELD_PATTERN.search(line_stripped)
+                # Try to find field of study in the same line (prefer "in <Field>" over "of <Field>")
+                field_match = _FIELD_IN_PATTERN.search(line_stripped)
+                if not field_match:
+                    field_match = _FIELD_OF_PATTERN.search(line_stripped)
+                    # Exclude generic degree qualifiers like "Science" or "Arts" if matched via "of"
+                    if field_match and field_match.group(1).strip().lower() in {
+                        "science", "arts", "engineering", "technology", "business", "commerce"
+                    }:
+                        field_match = None
+
                 field = field_match.group(1).strip() if field_match else None
 
                 results.append(EducationEntry(
@@ -354,6 +466,8 @@ def extract_education(text: str) -> list[EducationEntry]:
                 seen_degrees.add(degree_label)
                 break  # stop after first matching degree level for this line
 
+    # Always sort descending by hierarchy so highest degree is first
+    results.sort(key=lambda e: DEGREE_ORDER.get(e.degree, 0), reverse=True)
     return results
 
 

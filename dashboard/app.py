@@ -1344,8 +1344,9 @@ elif page == "Upload Resume":
                         </article>
                         """)
                     with m3:
-                        edu = data["education"]
-                        deg = edu[0]["degree"] if edu else "None listed"
+                        edu = data.get("education") or []
+                        _deg_order = {"phd": 5, "master's": 4, "masters": 4, "bachelor's": 3, "bachelors": 3, "associate": 2, "high school": 1}
+                        deg = max(edu, key=lambda e: _deg_order.get(str(e.get("degree", "")).lower(), 0)).get("degree", "None listed") if edu else "None listed"
                         H(f"""
                         <article class="bento-card fade-up-3">
                         <span class="section-label">HIGHEST DEGREE</span>
@@ -1467,8 +1468,9 @@ elif page == "Job Description":
                             </article>
                             """)
                         with c4:
-                            edu = d["education_requirement"]
-                            deg = edu[0]["degree"] if edu else "None"
+                            edu = d.get("education_requirement") or []
+                            _deg_order = {"phd": 5, "master's": 4, "masters": 4, "bachelor's": 3, "bachelors": 3, "associate": 2, "high school": 1}
+                            deg = max(edu, key=lambda e: _deg_order.get(str(e.get("degree", "")).lower(), 0)).get("degree", "None") if edu else "None"
                             H(f"""
                             <article class="bento-card fade-up-4">
                             <span class="section-label">EDUCATION</span>

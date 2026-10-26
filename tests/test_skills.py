@@ -213,6 +213,50 @@ class TestExtractEducation(unittest.TestCase):
         result = extract_education("I am a Python developer with 5 years of experience.")
         self.assertEqual(result, [])
 
+    def test_ms_tools_not_detected_as_masters(self):
+        """Microsoft tools (MS Project, MS Office, etc.) and milliseconds must not trigger Master's."""
+        false_positives = [
+            "Project Management: MS Project, Agile, Waterfall, SDLC",
+            "Other: Git, REST APIs, Data Structures & Algorithms, OOP, Assembly Language, MS Office",
+            "Experienced in MS Excel, MS Word, MS PowerPoint, and MS Access.",
+            "Reduced database query latency down to 50 ms.",
+            "Ms. Sarah Connor is our HR contact.",
+        ]
+        for line in false_positives:
+            res = extract_education(line)
+            degrees = [e.degree for e in res]
+            self.assertNotIn("Master's", degrees, msg=f"False positive Master's in: {line}")
+
+    def test_english_words_and_job_roles_not_false_degrees(self):
+        """Common English words ('be', 'as') and role titles ('Associate') must not trigger false degrees."""
+        false_positives = [
+            "Candidate will be responsible for building cloud-native microservices.",
+            "Worked as a backend software engineer for 3 years.",
+            "Seeking Junior/Associate or Management Trainee roles in Data Analytics.",
+        ]
+        for line in false_positives:
+            res = extract_education(line)
+            self.assertEqual(res, [], msg=f"False positive degree detected in: {line}")
+
+    def test_bachelor_with_intermediate_and_ms_tools(self):
+        """CV with MS Project, Bachelor of Science, and Intermediate must yield Bachelor's as top degree."""
+        sample_cv = """
+        TECHNICAL SKILLS
+        Project Management: MS Project, Agile, Waterfall, SDLC
+        Other: Git, REST APIs, Data Structures & Algorithms, OOP, Assembly Language, MS Office
+        EDUCATION
+        Bachelor of Science in Computer Science (BSCS)
+        University of Karachi — UBIT | Jan 2023 – Nov 2026 | In Progress
+        Intermediate (Pre-Engineering)
+        Govt Degree College Malir Cantt | Aug 2021 – Aug 2022
+        """
+        res = extract_education(sample_cv)
+        degrees = [e.degree for e in res]
+        self.assertNotIn("Master's", degrees, "Master's should NOT be detected from MS Project / MS Office")
+        self.assertIn("Bachelor's", degrees, "Bachelor's must be detected")
+        self.assertIn("High School", degrees, "Intermediate must be detected as High School")
+        self.assertEqual(res[0].degree, "Bachelor's", "Highest degree must be Bachelor's")
+
 
 class TestExtractExperienceYears(unittest.TestCase):
     """Tests for extract_experience_years() — regex-based year estimation."""
