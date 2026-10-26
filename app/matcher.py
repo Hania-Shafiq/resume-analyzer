@@ -5,20 +5,30 @@ and calculates chunk-level semantic similarity between resumes and job descripti
 """
 
 from functools import lru_cache
+import logging
+import os
 import re
 from typing import Any, Union
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
+
+try:
+    from sentence_transformers import SentenceTransformer
+    _HAS_SBERT = True
+except (ImportError, Exception):
+    SentenceTransformer = None  # type: ignore
+    _HAS_SBERT = False
 
 from app.preprocess import light_clean
+
+logger = logging.getLogger(__name__)
 
 # Default embedding model
 MODEL_NAME = "all-MiniLM-L6-v2"
 
 
 @lru_cache(maxsize=1)
-def get_model(model_name: str = MODEL_NAME) -> SentenceTransformer:
+def get_model(model_name: str = MODEL_NAME) -> Any:
     """Load and cache the sentence-transformers model as a singleton.
 
     Parameters
@@ -31,6 +41,8 @@ def get_model(model_name: str = MODEL_NAME) -> SentenceTransformer:
     SentenceTransformer
         Cached model instance ready for encoding.
     """
+    if not _HAS_SBERT or SentenceTransformer is None:
+        raise RuntimeError("sentence-transformers is not available in this environment.")
     return SentenceTransformer(model_name)
 
 
@@ -105,6 +117,32 @@ def split_sentences(text: str, min_length: int = 15) -> list[str]:
     return chunks
 
 
+def _tfidf_similarity_matrix(sentences_a: list[str], sentences_b: list[str]) -> np.ndarray:
+    """Compute cosine similarity matrix using TF-IDF word & char n-grams (zero extra RAM)."""
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.metrics.pairwise import cosine_similarity
+
+    if not sentences_a or not sentences_b:
+        return np.zeros((len(sentences_a), len(sentences_b)), dtype=np.float32)
+
+    vectorizer = TfidfVectorizer(
+        ngram_range=(1, 2),
+        sublinear_tf=True,
+        stop_words="english",
+        max_features=5000,
+    )
+    all_sentences = sentences_a + sentences_b
+    try:
+        vectorizer.fit(all_sentences)
+        mat_a = vectorizer.transform(sentences_a)
+        mat_b = vectorizer.transform(sentences_b)
+        res = cosine_similarity(mat_a, mat_b)
+        return np.asarray(res, dtype=np.float32)
+    except Exception as exc:
+        logger.warning("TF-IDF similarity computation failed (%s); returning zero matrix", exc)
+        return np.zeros((len(sentences_a), len(sentences_b)), dtype=np.float32)
+
+
 def compute_similarity_matrix(sentences_a: list[str], sentences_b: list[str]) -> np.ndarray:
     """Compute the cosine similarity matrix between two lists of sentences.
 
@@ -123,6 +161,11 @@ def compute_similarity_matrix(sentences_a: list[str], sentences_b: list[str]) ->
     """
     if not sentences_a or not sentences_b:
         return np.zeros((len(sentences_a), len(sentences_b)), dtype=np.float32)
+
+    use_lightweight = os.getenv("USE_LIGHTWEIGHT_MATCHER", "0").lower() in ("1", "true", "yes")
+
+    if use_lightweight or not _HAS_SBERT:
+        return _tfidf_similarity_matrix(sentences_a, sentences_b)
 
     model = get_model()
     # normalize_embeddings=True produces unit vectors, so cosine similarity is the dot product

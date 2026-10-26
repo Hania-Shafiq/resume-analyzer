@@ -1689,6 +1689,20 @@ elif page == "Match & Analysis":
                         json={"resume_text": analysis_resume_text, "job_description": jd_text, "mode": scoring_mode},
                         timeout=60,
                     )
+
+                    # Resilient retry: if 502 occurs (e.g. cloud server memory spike or cold restart), retry safely
+                    if match_resp.status_code == 502:
+                        time.sleep(1.5)
+                        fallback_mode = "skills_only" if scoring_mode != "skills_only" else scoring_mode
+                        fallback_resp = requests.post(
+                            f"{API_BASE}/match",
+                            json={"resume_text": analysis_resume_text, "job_description": jd_text, "mode": fallback_mode},
+                            timeout=45,
+                        )
+                        if fallback_resp.status_code == 200:
+                            match_resp = fallback_resp
+                            st.info("ℹ️ Note: Cloud backend auto-switched to lightweight scoring mode to conserve server memory.")
+
                     gap_resp = requests.get(
                         f"{API_BASE}/skill-gap",
                         params={"resume_text": analysis_resume_text, "job_description": jd_text},
