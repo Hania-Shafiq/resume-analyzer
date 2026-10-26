@@ -343,6 +343,7 @@ _DEGREE_PATTERNS: list[tuple[str, str]] = [
         r"|b\.e\.(?!\w)"
         r"|b\.s(?=\s+(?:in|of|degree|\(|[-–/]|,\s*[a-z])|\s*$)"
         r"|b\.e(?=\s+(?:in|of|degree|\(|[-–/]|,\s*[a-z])|\s*$)"
+        r"|(?:b[se]\s+(?:computer|software|information|data|electrical|mechanical|civil|electronic|applied|telecom|business|finance|accounting|economics|commerce|management)\b)"
         r"|(?:bs\s+(?:in|of|degree)\b)"
         r"|(?:bs\s*[-–/]\s*[a-z]+)"
         r"|(?:bs\s*,\s*[a-z]+)"

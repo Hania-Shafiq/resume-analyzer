@@ -1975,7 +1975,23 @@ elif page == "Bulk Upload & Rank":
     if bulk_files:
         st.caption(f"📁 **{len(bulk_files)} files selected** for analysis.")
 
-    # --- Section 3: Run Analysis Trigger ---
+    # --- Section 3: Scoring Methodology & Run Analysis Trigger ---
+    col_mode, col_space = st.columns([2.5, 1.5])
+    with col_mode:
+        bulk_scoring_mode = st.selectbox(
+            "Scoring Methodology",
+            ["composite", "proposal", "hybrid", "skills_only"],
+            format_func=lambda x: {
+                "composite": "Multi-Factor Composite (Skills 40%, Semantic 30%, Experience 15%, Recency 15%) — Recommended",
+                "proposal": "Weighted Comprehensive (Skills 40%, Semantic 40%, Experience 10%, Education 10%)",
+                "hybrid": "Hybrid Weighted (Skills 70%, Semantic 30%)",
+                "skills_only": "Skills Overlap Only (100% Skills — Keyword overlap only)",
+            }[x],
+            index=0,
+            key="bulk_scoring_mode_select",
+            help="Select the scoring algorithm. Multi-Factor Composite evaluates skills with evidence depth and experience timeline fit.",
+        )
+
     col_run, _ = st.columns([1, 2])
     with col_run:
         run_bulk = st.button("🚀 Analyze & Rank Resumes", type="primary", use_container_width=True)
@@ -1998,7 +2014,7 @@ elif page == "Bulk Upload & Rank":
                     resp = requests.post(
                         f"{API_BASE}/resume/bulk-analyze",
                         files=files_payload,
-                        data={"job_description": bulk_jd},
+                        data={"job_description": bulk_jd, "mode": bulk_scoring_mode},
                         timeout=180,
                     )
 

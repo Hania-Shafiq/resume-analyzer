@@ -463,6 +463,7 @@ def recommend_job_roles(body: RoleRecommendRequest):
 async def bulk_analyze(
     files: List[UploadFile] = File(...),
     job_description: str = Form(...),
+    mode: Optional[str] = Form(None),
 ):
     """Upload multiple resumes and score each against a job description.
 
@@ -501,7 +502,7 @@ async def bulk_analyze(
         "total_duplicates": 0,
     }
 
-    scoring_mode = os.getenv("SCORING_MODE", "skills_only")
+    scoring_mode = mode or os.getenv("SCORING_MODE", "composite")
     restore_encode = None
     if scoring_mode != "skills_only":
         try:
@@ -603,6 +604,7 @@ async def bulk_analyze(
                     resume_skills=resume_skills,
                     jd_analysis=jd_dict,
                     resume_profile=profile,
+                    mode=scoring_mode,
                 )
 
                 match_score = scores["final_score"]

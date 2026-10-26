@@ -332,16 +332,26 @@ def extract_email(text: str) -> str | None:
 def infer_candidate_name(filename: str) -> str:
     """Infer candidate name from resume filename.
 
-    Removes the words 'resume' and 'cv' (anywhere, case-insensitive),
+    Strips copy numbers like (1), splits camelCase/PascalCase,
+    removes the words 'resume' and 'cv' (anywhere, case-insensitive),
     replaces underscores, hyphens, and digits-only tokens with spaces,
     collapses multiple spaces, and title-cases the result.
     """
     stem = Path(filename or "").stem
-    name = stem.replace("_", " ").replace("-", " ")
+    # Remove copy indicators like (1), [2], {3}
+    stem = re.sub(r"[\(\[\{]\s*\d+\s*[\)\]\}]", " ", stem)
+    # Remove leading/trailing Resume/CV followed by Upper or delimiter
+    stem = re.sub(r"^(?:resume|cv)[_\s\-]*(?=[A-Z])", "", stem, flags=re.IGNORECASE)
+    stem = re.sub(r"(?<=[a-z])[_\s\-]*(?:resume|cv)$", "", stem, flags=re.IGNORECASE)
+    # Split camelCase and PascalCase (e.g. 'AbdulMoeed' -> 'Abdul Moeed')
+    stem = re.sub(r"([a-z])([A-Z])", r"\1 \2", stem)
+    stem = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", stem)
+    # Replace separators with spaces
+    name = stem.replace("_", " ").replace("-", " ").replace(".", " ")
     name = re.sub(r"\b(resume|cv)\b", " ", name, flags=re.IGNORECASE)
     name = re.sub(r"\b\d+\b", " ", name)
     name = re.sub(r"\s+", " ", name).strip()
-    return name.title() if name else stem
+    return name.title() if name else Path(filename or "").stem
 
 
 _SECTION_KEYWORDS_RE = re.compile(
@@ -350,6 +360,14 @@ _SECTION_KEYWORDS_RE = re.compile(
 _URL_PATTERN_RE = re.compile(
     r"(https?://|www\.|\.(?:com|org|net|io|edu|co|ai|dev|pk|app|tech)\b)", re.IGNORECASE
 )
+_INVALID_NAME_WORDS = {
+    "grade", "gpa", "cgpa", "education", "university", "college", "school",
+    "intermediate", "matric", "matriculation", "bachelor", "bachelors",
+    "master", "masters", "degree", "curriculum", "vitae", "resume",
+    "developer", "engineer", "fullstack", "backend", "frontend", "profile",
+    "summary", "skills", "experience", "project", "projects", "contact",
+    "email", "phone", "address", "pakistan", "karachi", "lahore", "islamabad",
+}
 _SPACY_NLP = None
 
 
@@ -369,12 +387,18 @@ def extract_candidate_name(text: str, filename: str = "") -> str:
     """Extract candidate name from resume text with fallback to filename.
 
     Strategy:
-    (a) Check the first 5 non-empty lines for a line of 2-4 words in Title Case
-        or ALL CAPS with no digits, '@', URLs or section keywords
-        (Resume, CV, Profile, Summary, Education, Skills).
-    (b) Otherwise take the first spaCy PERSON entity in the first 400 characters.
-    (c) Otherwise fall back to the existing infer_candidate_name(filename).
+    (a) Check the first 5 non-empty lines:
+        - Check for tracked/spaced-out letter names (e.g., 'A B D U L   M O E E D')
+          matching inferred filename name.
+        - Check for standard 2-4 word Title Case or ALL CAPS name line with no
+          digits, '@', URLs, or section/academic keywords.
+    (b) Otherwise take the first valid spaCy PERSON entity in the first 400 characters,
+        strictly rejecting newlines, digits, and academic/job title tokens.
+    (c) Otherwise fall back to infer_candidate_name(filename).
     """
+    inferred = infer_candidate_name(filename)
+    inferred_chars = re.sub(r"[^a-zA-Z]", "", inferred).lower()
+
     # (a) Check first 5 non-empty lines
     if text and isinstance(text, str):
         non_empty_lines = [
@@ -382,10 +406,8 @@ def extract_candidate_name(text: str, filename: str = "") -> str:
         ][:5]
 
         for line in non_empty_lines:
-            # Must not contain digits, '@', URLs, or section keywords
-            if re.search(r"\d", line):
-                continue
-            if "@" in line:
+            # Must not contain digits or email addresses
+            if re.search(r"\d", line) or "@" in line:
                 continue
             if _URL_PATTERN_RE.search(line):
                 continue
@@ -393,7 +415,20 @@ def extract_candidate_name(text: str, filename: str = "") -> str:
                 continue
 
             words = line.split()
+
+            # Check for tracked letters e.g. 'A B D U L   M O E E D'
+            if len(words) >= 3 and all(len(w) == 1 and w.isalpha() for w in words):
+                line_chars = "".join(words).lower()
+                if inferred_chars and line_chars == inferred_chars:
+                    return inferred
+                inf_words = inferred.split()
+                if len(inf_words) >= 2 and "".join(inf_words).lower() == line_chars:
+                    return inferred
+
             if not (2 <= len(words) <= 4):
+                continue
+
+            if any(w.lower().strip(".,;:()[]{}<>\"'") in _INVALID_NAME_WORDS for w in words):
                 continue
 
             # Must not contain punctuation symbols common in headers / job titles / bullets
@@ -408,7 +443,7 @@ def extract_candidate_name(text: str, filename: str = "") -> str:
             if is_title or is_caps:
                 return line.strip()
 
-        # (b) spaCy PERSON entity in first 400 characters
+        # (b) spaCy PERSON entity in first 400 characters with strict validation
         sample_text = text[:400]
         nlp = _get_spacy_nlp()
         if nlp is not None:
@@ -416,11 +451,22 @@ def extract_candidate_name(text: str, filename: str = "") -> str:
             for ent in doc.ents:
                 if ent.label_ == "PERSON":
                     candidate = ent.text.strip()
-                    if candidate:
-                        return candidate
+                    # Sanitize: no newlines, no digits, 2-4 words
+                    if not candidate or "\n" in candidate or "\r" in candidate:
+                        continue
+                    if re.search(r"\d", candidate):
+                        continue
+                    c_words = candidate.split()
+                    if not (2 <= len(c_words) <= 4):
+                        continue
+                    if any(w.lower().strip(".,;:()[]{}<>\"'") in _INVALID_NAME_WORDS for w in c_words):
+                        continue
+                    if not all(w[0].isupper() for w in c_words):
+                        continue
+                    return candidate
 
     # (c) Fallback to infer_candidate_name(filename)
-    return infer_candidate_name(filename)
+    return inferred
 
 
 _PHONE_PATTERN = re.compile(
