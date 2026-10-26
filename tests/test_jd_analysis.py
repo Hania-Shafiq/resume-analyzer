@@ -322,6 +322,24 @@ class TestAnalyzeJDEdgeCases(unittest.TestCase):
         self.assertNotIn("postgresql", result.required_skills)
         self.assertEqual(result.min_experience_years, 0)
 
+    def test_parenthetical_section_headings_and_elementor(self):
+        """Verify headings like 'Requirements (Must-Have):' and 'Preferred Skills (Nice-to-Have):'."""
+        jd = """
+        Job Description: Data Analyst
+        Requirements (Must-Have):
+        - Strong SQL skills
+        - Advanced Microsoft Excel
+
+        Preferred Skills (Nice-to-Have):
+        - Python, Pandas
+        - Elementor
+        """
+        result = analyze_job_description(jd)
+        self.assertIn("sql", result.required_skills)
+        self.assertIn("excel", result.required_skills)
+        self.assertIn("elementor", result.preferred_skills)
+        self.assertNotIn("elementor", result.required_skills)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

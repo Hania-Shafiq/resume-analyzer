@@ -445,7 +445,7 @@ _REQUIRED_HEADING = re.compile(
     r"core skills?|key skills?|technical skills?|"
     r"what you(?:'ll)? need|"
     r"what we(?:'re)? looking for"
-    r")$",
+    r")(?:\s*\(.*?\))?$",
     re.IGNORECASE,
 )
 
@@ -462,7 +462,7 @@ _PREFERRED_HEADING = re.compile(
     r"advantageous|"
     r"optional(?: skills?)?|"
     r"additional skills?"
-    r")$",
+    r")(?:\s*\(.*?\))?$",
     re.IGNORECASE,
 )
 

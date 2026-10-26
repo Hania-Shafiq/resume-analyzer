@@ -773,6 +773,19 @@
       },
       "htmx": {
         "aliases": []
+      },
+      "elementor": {
+        "aliases": [
+          "elementor pro",
+          "elementor page builder"
+        ]
+      },
+      "wordpress": {
+        "aliases": [
+          "wp",
+          "wordpress.org",
+          "wordpress.com"
+        ]
       }
     },
     "devops_tools": {
