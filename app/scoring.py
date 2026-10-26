@@ -321,8 +321,9 @@ def compute_scores(
         )
 
     # ── 2. Skill Component (Plain vs Evidence-Adjusted Coverage) ───────────
+    from app.skills import normalize_skill
     if isinstance(resume_skills, (list, set, tuple)):
-        res_skills = {str(s).strip().lower() for s in resume_skills if str(s).strip()}
+        res_skills = {normalize_skill(str(s)) for s in resume_skills if str(s).strip()}
     else:
         res_skills = set()
 
@@ -338,8 +339,8 @@ def compute_scores(
     elif isinstance(jd_analysis, dict):
         pref_list = jd_analysis.get("preferred_skills") or []
 
-    req_skills = {str(s).strip().lower() for s in req_list if str(s).strip()}
-    pref_skills = {str(s).strip().lower() for s in pref_list if str(s).strip()}
+    req_skills = {normalize_skill(str(s)) for s in req_list if str(s).strip()}
+    pref_skills = {normalize_skill(str(s)) for s in pref_list if str(s).strip()}
 
     req_matched = sorted(res_skills & req_skills)
     pref_matched = sorted(res_skills & pref_skills)

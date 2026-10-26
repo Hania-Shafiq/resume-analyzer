@@ -94,6 +94,208 @@ def _load_resources() -> tuple[spacy.language.Language, PhraseMatcher]:
     return _nlp, _matcher
 
 
+# ---------------------------------------------------------------------------
+# Ambiguous abbreviation contextual validation
+# ---------------------------------------------------------------------------
+_AMBIGUOUS_ABBRS = {
+    "be", "fe", "fs", "db", "ml", "ai", "dl", "node", "ui", "ux", "api", "apis", "backend", "frontend", "full stack", "fullstack",
+}
+
+_AUX_VERBS = {
+    "must", "will", "shall", "should", "would", "could", "can", "may",
+    "might", "to", "cannot", "mustn't", "has", "have", "had", "ought"
+}
+
+_BE_VERB_FOLLOWERS = {
+    "able", "responsible", "working", "required", "involved", "part",
+    "considered", "expected", "comfortable", "familiar", "proficient",
+    "involved", "used", "delivered", "written", "given", "taken", "made",
+    "a", "an", "the", "in", "of", "with", "for", "on", "at", "by", "from"
+}
+
+_DEV_NOUNS = {
+    "developer", "developers", "engineer", "engineers", "dev", "devs",
+    "development", "architecture", "architect", "stack", "team", "lead",
+    "services", "technologies", "systems", "system"
+}
+
+_NODE_FALSE_PRECEDERS = {
+    "dom", "tree", "leaf", "cluster", "network", "worker", "compute",
+    "graph", "binary", "child", "parent", "root", "single", "every", "each"
+}
+
+
+_NON_SKILL_NOUNS = {
+    "systems", "system", "microservices", "microservice", "fixes", "fix",
+    "bug", "bugs", "issues", "issue", "tickets", "ticket", "planning",
+    "meetings", "meeting", "tasks", "task", "duties", "duty"
+}
+
+_DETERMINERS = {"the", "this", "that", "an", "a", "our", "their", "its"}
+
+
+def _is_valid_contextual_skill(doc, span, canonical: str, surface_form: str) -> bool:
+    """Validate whether an ambiguous abbreviation actually represents a skill in context."""
+    text_span = span.text
+    start, end = span.start, span.end
+
+    if surface_form in {"api", "apis"}:
+        # Generic noun references like 'deployment of the API' are not skills
+        if start > 0 and doc[start - 1].lower_ in _DETERMINERS:
+            return False
+        return True
+
+    if surface_form in {"backend", "frontend", "full stack", "fullstack", "be", "fe", "fs"}:
+        # Role / job title introduction (e.g. 'We are seeking a Backend Engineer')
+        if start >= 2 and doc[start - 2].lower_ in {"seeking", "hiring", "wanted"}:
+            return False
+        if start >= 3 and doc[start - 3].lower_ in {"looking"} and doc[start - 2].lower_ in {"for"}:
+            return False
+        if start > 0 and doc[start - 1].lower_ in {"role", "title", "position"}:
+            return False
+        if end < len(doc) and doc[end].lower_ in _NON_SKILL_NOUNS:
+            return False
+
+    if surface_form == "be":
+        # Check if it's the English verb 'be' (must be, to be, will be, etc.)
+        if start > 0 and doc[start - 1].lower_ in _AUX_VERBS:
+            return False
+        if end < len(doc) and doc[end].lower_ in _BE_VERB_FOLLOWERS:
+            return False
+        # Academic degree check (e.g. B.E. in Electrical)
+        window_before = doc[max(0, start - 4):start].text.lower()
+        window_after = doc[end:min(len(doc), end + 4)].text.lower()
+        if any(w in window_before for w in ["bachelor", "degree", "graduated"]):
+            return False
+        if any(w in window_after for w in ["electrical", "mechanical", "civil", "electronics"]):
+            return False
+        if end < len(doc) and doc[end].lower_ in _NON_SKILL_NOUNS:
+            return False
+        # Valid if uppercase 'BE' or adjacent to FE/FS or followed by developer/engineer/etc.
+        if end < len(doc) and doc[end].lower_ in _DEV_NOUNS:
+            return True
+        if start > 0 and doc[start - 1].lower_ in {"fe", "fs", "frontend", "fullstack"}:
+            return True
+        if end < len(doc) and doc[end].lower_ in {"fe", "fs", "frontend", "fullstack"}:
+            return True
+        # If uppercase BE and not auxiliary verb
+        if text_span == "BE":
+            return True
+        return False
+
+    elif surface_form == "fe":
+        if end < len(doc) and doc[end].lower_ in _NON_SKILL_NOUNS:
+            return False
+        if end < len(doc) and doc[end].lower_ in _DEV_NOUNS:
+            return True
+        if text_span == "FE":
+            return True
+        if "frontend" in surface_form:
+            return True
+        return False
+
+    elif surface_form == "fs":
+        # Reject Node.js fs module
+        if start > 0 and doc[start - 1].lower_ in {"require", "import", "module"}:
+            return False
+        if end < len(doc) and doc[end].text.startswith("."):
+            return False
+        if end < len(doc) and doc[end].lower_ in _NON_SKILL_NOUNS:
+            return False
+        if end < len(doc) and doc[end].lower_ in _DEV_NOUNS:
+            return True
+        if text_span == "FS":
+            return True
+        return False
+
+    elif surface_form == "db":
+        # Check if preceded by digit (decibels e.g. 50 dB)
+        if start > 0 and (doc[start - 1].like_num or re.search(r"\d", doc[start - 1].text)):
+            return False
+        raw_before = doc.text[:span.start_char]
+        if re.search(r"\d\s*$", raw_before):
+            return False
+        if text_span in {"DB", "dB"}:
+            return True
+        if end < len(doc) and doc[end].lower_ in {"admin", "administrator", "design", "schema", "queries", "management"}:
+            return True
+        return False
+
+    elif surface_form == "ml":
+        # Check if preceded by digit (milliliters e.g. 500 ml)
+        if start > 0 and (doc[start - 1].like_num or re.search(r"\d", doc[start - 1].text)):
+            return False
+        raw_before = doc.text[:span.start_char]
+        if re.search(r"\d\s*$", raw_before):
+            return False
+        if text_span == "ML":
+            return True
+        if end < len(doc) and doc[end].lower_ in {"engineer", "model", "models", "pipeline", "algorithms", "frameworks"}:
+            return True
+        return False
+
+    elif surface_form == "ai":
+        if text_span == "AI":
+            return True
+        if end < len(doc) and doc[end].lower_ in {"engineer", "researcher", "models", "tools", "solutions"}:
+            return True
+        return False
+
+    elif surface_form == "dl":
+        if text_span == "DL":
+            return True
+        if end < len(doc) and doc[end].lower_ in {"engineer", "models", "frameworks"}:
+            return True
+        return False
+
+    elif surface_form == "node":
+        # Reject graph/tree/network node
+        if start > 0 and doc[start - 1].lower_ in _NODE_FALSE_PRECEDERS:
+            return False
+        if end < len(doc) and doc[end].lower_ in {"in", "of", "from"}:
+            if end + 1 < len(doc) and doc[end + 1].lower_ in {"the", "a", "an", "this", "our", "their"}:
+                return False
+        if text_span in {"Node", "NODE"} or (end < len(doc) and doc[end].lower_ in _DEV_NOUNS | {"express", "js", "backend"}):
+            return True
+        if start > 0 and doc[start - 1].lower_ in {"react", "express", "python"}:
+            return True
+        return True
+
+    return True
+
+
+def normalize_skill(skill: str) -> str:
+    """Normalize a skill name, abbreviation, or alias to its canonical representation.
+
+    Parameters
+    ----------
+    skill : str
+        Skill name, abbreviation, or alias (e.g. 'JS', 'React.js', 'Postgres', 'K8s', 'FE').
+
+    Returns
+    -------
+    str
+        Canonical skill name if recognized (e.g. 'javascript', 'react', 'postgresql'),
+        or the cleaned, lowercased input string if not in the taxonomy.
+    """
+    if not isinstance(skill, str) or not skill.strip():
+        return ""
+    _load_resources()
+    cleaned = skill.strip().lower()
+    if cleaned in _alias_to_canonical:
+        return _alias_to_canonical[cleaned]
+    alt1 = cleaned.replace("-", " ")
+    if alt1 in _alias_to_canonical:
+        return _alias_to_canonical[alt1]
+    alt2 = cleaned.replace("/", " ")
+    if alt2 in _alias_to_canonical:
+        return _alias_to_canonical[alt2]
+    alt3 = re.sub(r"[^\w\s\.\+#/]", "", cleaned)
+    if alt3 in _alias_to_canonical:
+        return _alias_to_canonical[alt3]
+    return cleaned
+
+
 # ===========================================================================
 # Public API
 # ===========================================================================
@@ -143,10 +345,18 @@ def extract_skills(text: str) -> list[str]:
     results: list[str] = []
 
     for _match_id, start, end in matches:
-        # The match_id key is the surface form we registered
-        surface_form = doc[start:end].text.lower()
+        span = doc[start:end]
+        surface_form = span.text.lower()
         canonical = _alias_to_canonical.get(surface_form)
-        if canonical and canonical not in seen:
+        if not canonical:
+            continue
+        if surface_form in _AMBIGUOUS_ABBRS:
+            if not _is_valid_contextual_skill(doc, span, canonical, surface_form):
+                continue
+        if surface_form in _AMBIGUOUS_ABBRS:
+            if not _is_valid_contextual_skill(doc, span, canonical, surface_form):
+                continue
+        if canonical not in seen:
             seen.add(canonical)
             results.append(canonical)
 
@@ -870,6 +1080,9 @@ def analyze_job_description(jd_text: str) -> JDAnalysis:
         pref_set = set(preferred_skills)
         req_set = set(required_skills)
         for s in other_skills:
+            # Do not inject generic role titles from JD headers/other into required skills
+            if s in {"backend", "frontend", "full stack"}:
+                continue
             if s not in pref_set and s not in req_set:
                 required_skills.append(s)
                 req_set.add(s)

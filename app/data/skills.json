@@ -27,12 +27,14 @@
           "js",
           "javascript es6",
           "es6",
-          "ecmascript"
+          "ecmascript",
+          "javascript"
         ]
       },
       "typescript": {
         "aliases": [
-          "ts"
+          "ts",
+          "typescript"
         ]
       },
       "java": {
@@ -138,7 +140,8 @@
       },
       "sql": {
         "aliases": [
-          "structured query language"
+          "structured query language",
+          "sql"
         ]
       },
       "pl/sql": {
@@ -168,7 +171,8 @@
         "aliases": [
           "postgres",
           "pg",
-          "psql"
+          "psql",
+          "postgresql"
         ]
       },
       "mysql": {
@@ -306,13 +310,24 @@
         "aliases": [
           "prisma orm"
         ]
+      },
+      "database": {
+        "category": "databases",
+        "aliases": [
+          "db",
+          "databases",
+          "relational database",
+          "relational databases",
+          "rdbms"
+        ]
       }
     },
     "cloud": {
       "aws": {
         "aliases": [
           "amazon web services",
-          "amazon aws"
+          "amazon aws",
+          "aws"
         ]
       },
       "azure": {
@@ -426,19 +441,22 @@
     "machine_learning": {
       "machine learning": {
         "aliases": [
-          "ml"
+          "ml",
+          "machine learning"
         ]
       },
       "deep learning": {
         "aliases": [
-          "dl"
+          "dl",
+          "deep learning"
         ]
       },
       "natural language processing": {
         "aliases": [
           "nlp",
           "natural language understanding",
-          "nlu"
+          "nlu",
+          "natural language processing"
         ]
       },
       "computer vision": {
@@ -635,13 +653,24 @@
           "ray train",
           "ray tune"
         ]
+      },
+      "artificial intelligence": {
+        "category": "machine_learning",
+        "aliases": [
+          "ai",
+          "artificial intelligence",
+          "generative ai",
+          "genai"
+        ]
       }
     },
     "web": {
       "react": {
         "aliases": [
           "reactjs",
-          "react.js"
+          "react.js",
+          "react js",
+          "react"
         ]
       },
       "angular": {
@@ -697,7 +726,9 @@
       "node.js": {
         "aliases": [
           "nodejs",
-          "node js"
+          "node js",
+          "node",
+          "node.js"
         ]
       },
       "spring": {
@@ -726,7 +757,10 @@
         "aliases": [
           "restful api",
           "rest",
-          "restful"
+          "restful",
+          "representational state transfer",
+          "rest apis",
+          "restful apis"
         ]
       },
       "grpc": {
@@ -786,25 +820,90 @@
           "wordpress.org",
           "wordpress.com"
         ]
+      },
+      "full stack": {
+        "category": "web",
+        "aliases": [
+          "fs",
+          "full-stack",
+          "fullstack",
+          "full stack developer",
+          "full stack development",
+          "full stack engineering"
+        ]
+      },
+      "frontend": {
+        "category": "web",
+        "aliases": [
+          "fe",
+          "front-end",
+          "front end",
+          "frontend developer",
+          "frontend development",
+          "frontend engineering"
+        ]
+      },
+      "backend": {
+        "category": "web",
+        "aliases": [
+          "be",
+          "back-end",
+          "back end",
+          "backend developer",
+          "backend development",
+          "backend engineering"
+        ]
+      },
+      "api": {
+        "category": "web",
+        "aliases": [
+          "apis",
+          "application programming interface",
+          "application programming interfaces",
+          "web api",
+          "web apis"
+        ]
+      },
+      "ui": {
+        "category": "web",
+        "aliases": [
+          "user interface",
+          "user interfaces",
+          "ui design",
+          "ui development"
+        ]
+      },
+      "ux": {
+        "category": "web",
+        "aliases": [
+          "user experience",
+          "user experiences",
+          "ux design",
+          "ux research"
+        ]
       }
     },
     "devops_tools": {
       "docker": {
         "aliases": [
           "docker container",
-          "dockerfile"
+          "dockerfile",
+          "docker"
         ]
       },
       "kubernetes": {
         "aliases": [
           "k8s",
           "k8",
-          "kube"
+          "kube",
+          "kubernetes"
         ]
       },
       "git": {
         "aliases": [
-          "git version control"
+          "git version control",
+          "git (version control)",
+          "git"
         ]
       },
       "github": {
@@ -861,7 +960,12 @@
         "aliases": [
           "continuous integration",
           "continuous delivery",
-          "continuous deployment"
+          "continuous deployment",
+          "ci cd",
+          "ci-cd",
+          "ci/cd",
+          "continuous integration / continuous deployment",
+          "continuous integration and continuous deployment"
         ]
       },
       "kafka": {
