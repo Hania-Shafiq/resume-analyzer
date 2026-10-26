@@ -59,9 +59,10 @@ app = FastAPI(
     version="0.1.0",
 )
 
-import os
 allowed_origins_env = os.getenv("ALLOWED_ORIGINS")
-allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()] if allowed_origins_env else ["*"]
+allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()] if allowed_origins_env and allowed_origins_env.strip() else ["*"]
+if not allowed_origins:
+    allowed_origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -578,6 +579,10 @@ async def bulk_analyze(
                 experience = extract_experience_years(cleaned)
                 exp_summary = extract_experience(raw_text)
 
+                # Fallback: if explicit phrase wasn't in text, compute from parsed work history
+                if experience is None and exp_summary.professional_months > 0:
+                    experience = exp_summary.professional_months // 12
+
                 # --- Score against JD ---
                 resume_skills = set(skills)
                 req_matched = sorted(resume_skills & required)
@@ -645,108 +650,7 @@ async def bulk_analyze(
                 entry["error"] = str(exc)
                 summary["total_failed"] += 1
 
-            # --- Read bytes ---
-            raw_bytes = await file.read()
-
-            if not raw_bytes:
-                entry["error"] = "File is empty (0 bytes)."
-                summary["total_failed"] += 1
-                results.append(entry)
-                continue
-
-            # --- Size check ---
-            if len(raw_bytes) > MAX_FILE_SIZE:
-                entry["error"] = (
-                    f"File too large ({len(raw_bytes) / (1024*1024):.1f} MB). "
-                    f"Maximum is {MAX_FILE_SIZE / (1024*1024):.0f} MB."
-                )
-                summary["total_failed"] += 1
-                results.append(entry)
-                continue
-
-            # --- Duplicate detection ---
-            content_hash = hashlib.sha256(raw_bytes).hexdigest()
-            if content_hash in seen_hashes:
-                entry["status"] = "duplicate"
-                entry["error"] = f"Duplicate of {seen_hashes[content_hash]}"
-                entry["content_hash"] = content_hash
-                summary["total_duplicates"] += 1
-                results.append(entry)
-                continue
-
-            seen_hashes[content_hash] = file.filename
-
-            # --- Parse ---
-            raw_text = extract_text(raw_bytes, filename=file.filename)
-            cleaned = light_clean(raw_text)
-
-            # --- Extract structured info ---
-            skills = extract_skills(cleaned)
-            education = extract_education(cleaned)
-            experience = extract_experience_years(cleaned)
-            exp_summary = extract_experience(raw_text)
-
-            # Fallback: if explicit phrase wasn't in text, compute from parsed work history
-            if experience is None and exp_summary.professional_months > 0:
-                experience = exp_summary.professional_months // 12
-
-            # --- Score against JD ---
-            resume_skills = set(skills)
-            req_matched = sorted(resume_skills & required)
-            pref_matched = sorted(resume_skills & preferred)
-            req_missing = sorted(required - resume_skills)
-            pref_missing = sorted(preferred - resume_skills)
-
-            req_score = len(req_matched) / max(len(required), 1)
-            pref_score = len(pref_matched) / max(len(preferred), 1)
-            if required and preferred:
-                match_score = round(0.80 * req_score + 0.20 * pref_score, 4)
-            elif required:
-                match_score = round(req_score, 4)
-            elif preferred:
-                match_score = round(pref_score, 4)
-            else:
-                match_score = 0.0
-
-            # Derive candidate name from resume text (fallback to filename)
-            candidate_name = extract_candidate_name(raw_text, file.filename or "")
-
-            email = extract_email(raw_text) or extract_email(cleaned)
-
-            entry.update({
-                "status": "analyzed",
-                "candidate_name": candidate_name,
-                "email": email,
-                "content_hash": content_hash,
-                "skills": skills,
-                "experience_years": experience,
-                "professional_months": exp_summary.professional_months,
-                "freelance_months": exp_summary.freelance_months,
-                "professional_experience_str": exp_summary.professional_str,
-                "freelance_experience_str": exp_summary.freelance_str,
-                "combined_experience_str": exp_summary.combined_str,
-                "has_internships": exp_summary.has_internships,
-                "internship_note": exp_summary.internship_note,
-                "education": [
-                    {"degree": e.degree, "field": e.field} for e in education
-                ],
-                "match_score": match_score,
-                "required_matched": req_matched,
-                "required_missing": req_missing,
-                "preferred_matched": pref_matched,
-                "preferred_missing": pref_missing,
-                "total_required": len(required),
-                "total_preferred": len(preferred),
-                "skills_match_count": len(req_matched) + len(pref_matched),
-                "error": None,
-            })
-            summary["total_analyzed"] += 1
-
-        except Exception as exc:
-            entry["error"] = str(exc)
-            summary["total_failed"] += 1
-
-        results.append(entry)
+            results.append(entry)
     finally:
         if restore_encode is not None:
             restore_encode[0].encode = restore_encode[1]
