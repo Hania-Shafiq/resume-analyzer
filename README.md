@@ -1,497 +1,273 @@
-# AI-Powered Resume Analysis, Job Matching & Skill Gap Detection System
+# Resume Analyzer
 
-> An intelligent NLP system that parses resumes, extracts technical skills, matches candidate profiles against job descriptions, and pinpoints missing skills for career growth.
+<p align="center">
+  <strong>Production-grade AI-powered resume parser, semantic job matcher, and blind candidate screening engine.</strong>
+</p>
 
----
-
-## 📌 Overview
-
-The **Resume Analyzer** (`resume-analyzer`) is an end-to-end NLP and machine learning platform designed to streamline hiring and career guidance. The system processes resumes in PDF and DOCX formats, extracts hard and soft skills, normalizes them against standard skill taxonomies, calculates semantic and skill-based match scores against job descriptions, and provides actionable recommendations to bridge skill gaps.
-
----
-
-## ✨ Features
-
-- **Resume Parsing**: Extracts clean text and table contents from PDF (via PyMuPDF) and DOCX (via python-docx) documents with robust error handling.
-- **Skill Extraction**: Identifies technical and domain-specific skills using rule-based and NLP entity extraction patterns.
-- **Job Description (JD) Analysis**: Extracts required skills, qualifications, and experience benchmarks from raw job postings.
-- **Semantic & Keyword Matching**: Combines rule-based skill overlap with transformer embeddings for deep contextual candidate-job matching.
-- **Skill Gap Detection**: Pinpoints missing skills required by a job and categorizes them by priority.
-- **Job & Course Recommendations**: Suggests matching job roles and relevant learning paths based on detected candidate gaps.
-- **Job Role Recommendation**: Predicts the best-fit job roles for a resume (top 4, with probability %) using a classifier trained on a labelled resume dataset (TF-IDF + Logistic Regression, compared against sentence embeddings + Logistic Regression).
-- **Interactive Dashboard**: A user-friendly Streamlit web interface for candidates and recruiters to upload resumes, view match scores, and explore gap reports.
+<p align="center">
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.12-3776AB.svg?logo=python&logoColor=white" alt="Python 3.12"></a>
+  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.110+-009688.svg?logo=fastapi&logoColor=white" alt="FastAPI"></a>
+  <a href="https://streamlit.io/"><img src="https://img.shields.io/badge/Streamlit-1.35+-FF4B4B.svg?logo=streamlit&logoColor=white" alt="Streamlit"></a>
+  <a href="https://spacy.io/"><img src="https://img.shields.io/badge/spaCy-3.7+-09A3D5.svg?logo=spacy&logoColor=white" alt="spaCy"></a>
+  <a href="tests/"><img src="https://img.shields.io/badge/Tests-530%20passing-brightgreen.svg" alt="530 Tests Passing"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+</p>
 
 ---
 
-## 🛠 Tech Stack
+## What it does
 
-- **Core & Runtime**: Python 3.10+
-- **Backend API**: [FastAPI](https://fastapi.tiangolo.com/), [Uvicorn](https://www.uvicorn.org/)
-- **Natural Language Processing**: [spaCy](https://spacy.io/) (`en_core_web_sm`), [NLTK](https://www.nltk.org/)
-- **Machine Learning & Embeddings**: [scikit-learn](https://scikit-learn.org/), [sentence-transformers](https://www.sbert.net/)
-- **Document Processing**: [PyMuPDF (fitz)](https://pymupdf.readthedocs.io/), [python-docx](https://python-docx.readthedocs.io/)
-- **Data & Storage**: [pandas](https://pandas.pydata.org/), [NumPy](https://numpy.org/), SQLite
-- **Frontend / Dashboard**: [Streamlit](https://streamlit.io/)
+Resume Analyzer is an intelligent recruitment analytics system that parses PDF and DOCX resumes, extracts structured candidate profiles (identity, skills, education, and dates), and benchmarks them against job descriptions. It scores candidate-job alignment across four configurable scoring models combining canonical taxonomy matching, sentence-transformer semantic embeddings, evidence depth verification, and exponential recency decay. The platform provides an interactive Streamlit multi-page dashboard alongside a high-performance RESTful FastAPI backend supporting batch candidate ranking, blind-screening PII redaction, and deterministic STAR bullet optimization.
 
 ---
 
-## 📂 Project Structure
+## Screenshots
+
+### 1. Overview Workspace
+![Overview Workspace](docs/screenshots/overview_workspace.png)
+
+### 2. Match & Gap Analysis
+![Match & Analysis](docs/screenshots/match_and_analysis.png)
+
+### 3. Bulk Upload & Candidate Ranking
+![Bulk Upload & Rank](docs/screenshots/bulk_upload_and_rank.png)
+
+---
+
+## Features
+
+- [x] **Dual Document Ingestion**: Parses `.pdf` (via PyMuPDF) and `.docx` (via python-docx) documents with candidate contact extraction (emails, phone numbers, LinkedIn/GitHub links).
+- [x] **Canonical Skill Taxonomy**: Hybrid dictionary and contextual NLP matching against 220 canonical skills across 8 categories with 388 surface aliases, protected by negative context rejection guards.
+- [x] **Structured Job Description Parsing**: Deconstructs raw JD text into required qualifications, responsibilities, and preferences, inferring target experience thresholds and degree requirements.
+- [x] **Dense Semantic Embedding Similarity**: Evaluates conceptual overlap between resume chunks and job descriptions using Sentence Transformers (`all-MiniLM-L6-v2`) with cosine similarity and TF-IDF fallback.
+- [x] **Skill Evidence Depth Analysis**: Inspects the grammatical context of matched skills, classifying evidence into `high_depth` (action verb + metric), `demonstrated` (action verb), or `listed` (mention only).
+- [x] **Exponential Skill Recency Decay**: Weights candidate skills by recency of active application across career positions using exponential half-life modeling.
+- [x] **Experience Normalization & Calendar Merging**: Resolves overlapping date intervals, parses diverse date formats ("MM/YYYY", "Month YYYY", "Present"), and differentiates standard employment from freelance work.
+- [x] **Education Tier Verification**: Extracts degree levels (Doctorate, Master's, Bachelor's, Associate) and fields of study with false-positive safeguards against common homoglyphs.
+- [x] **Multi-Model Scoring Presets**: Configurable scoring presets (`skills_only`, `hybrid`, `proposal`, `composite`) with transparent sub-score breakdowns and qualification status flags.
+- [x] **Batch Upload & Top-N Shortlisting**: Processes multiple candidate files in parallel, ranks them with deterministic multi-level tie-breaking, and exports shortlisted candidates to CSV.
+- [x] **Blind Screening & PII Anonymization**: Heuristically redacts candidate names, emails, phones, URLs, and gendered pronouns with residual leakage checking and sanitized dossier export.
+- [x] **Interactive PDF Visual Overlay**: Generates coordinate-accurate PDF highlight overlays displaying matched skills, missing requirements, and high-depth evidence directly on the original document.
+- [x] **Rule-Based STAR Bullet Optimizer**: Offline, deterministic bullet rewriter analyzing action-verb strength, measurable metrics, and domain-relevant achievements without external LLM dependencies.
+- [x] **Job Role Classification**: Recommends top matching job families using a trained scikit-learn classifier pipeline with confidence probability scores.
+
+---
+
+## Tech Stack
+
+| Layer | Technology | Purpose |
+| :--- | :--- | :--- |
+| **API Framework** | FastAPI (>=0.110.0) | High-performance asynchronous REST API routing and OpenAPI documentation |
+| **ASGI Web Server** | Uvicorn (>=0.28.0) | Production-grade asynchronous server for hosting the FastAPI backend |
+| **User Interface** | Streamlit (>=1.35.0) | Interactive multi-page dashboard for analysis, ranking, and visualization |
+| **Document Parsing** | PyMuPDF / fitz (>=1.24.0) | High-speed PDF text, layout, and visual coordinate bounding-box extraction |
+| **Word Parsing** | python-docx (>=1.1.0) | Microsoft Word `.docx` text and structural paragraph extraction |
+| **Linguistic NLP** | spaCy / en_core_web_sm (>=3.7.0) | Tokenization, dependency parsing, part-of-speech tagging, and entity extraction |
+| **Text Processing** | NLTK (>=3.8.0) | Token normalization, stopword filtering, and sentence boundary segmentation |
+| **Semantic Matching** | Sentence-Transformers (>=2.2.0) | Dense vector chunk embeddings using `all-MiniLM-L6-v2` |
+| **Machine Learning** | scikit-learn (>=1.4.0) | TF-IDF vectorization, cosine similarity computation, and job-role classification |
+| **Data & Array Math** | NumPy (>=1.24.0) & Pandas (>=2.0.0) | Matrix operations, date interval arithmetic, and tabular ranking manipulation |
+| **Model Serialization**| joblib (>=1.3.0) | Loading serialized job-role classification models (`job_classifier.joblib`) |
+| **Validation** | Pydantic (>=2.7.0) | Strict schema validation and data modeling for requests and responses |
+| **Testing** | pytest (>=7.4.0) & httpx (>=0.27.0) | Comprehensive unit, integration, edge-case, and endpoint test coverage |
+
+---
+
+## Project Structure
 
 ```text
 resume-analyzer/
 ├── app/
-│   ├── __init__.py           # Makes app a Python package
-│   ├── main.py               # FastAPI application entry point and route definitions
-│   ├── parser.py             # Document parser for PDF and DOCX extraction
-│   ├── preprocess.py         # Text normalization, tokenization, and cleaning
-│   ├── skills.py             # Skill extraction and taxonomy lookup engine
-│   ├── matcher.py            # Composite resume-to-job matching algorithm
-│   ├── recommender.py        # Job-role prediction: recommend_roles()
-│   ├── data/                 # Skill taxonomy and datasets
-│   │   ├── skills.json       # Canonical skill taxonomy
-│   │   └── resume_dataset.csv  # Labelled resumes (Category, Resume_str) for role classifier
-│   └── models/
-│       └── job_classifier.joblib  # Trained role classifier (created by notebook 03)
+│   ├── data/
+│   │   ├── resume_dataset.csv         # Training and evaluation resume corpus
+│   │   ├── skills.json                # Canonical taxonomy of 220 skills and 388 aliases across 8 categories
+│   │   └── star_templates.json        # Action verb categories and metric template patterns for STAR rewriting
+│   ├── models/
+│   │   └── job_classifier.joblib      # Serialized scikit-learn job-role recommendation model
+│   ├── __init__.py                    # App package initialization
+│   ├── evidence.py                    # Feature 3: Grammatical action verb and metric evidence depth classifier
+│   ├── experience.py                  # Work/freelance extraction, calendar interval merging, and duration formatting
+│   ├── main.py                        # FastAPI application setup, middleware, and core API endpoints
+│   ├── matcher.py                     # Sentence-Transformers semantic embedding similarity engine with TF-IDF fallback
+│   ├── overlay.py                     # Visual PDF overlay builder mapping keyword matches to PyMuPDF bounding boxes
+│   ├── parser.py                      # Multi-format document parser extracting text, email, phone, and links
+│   ├── preprocess.py                  # Two-tier text cleaning (light_clean for embeddings, nlp_process for linguistic tokens)
+│   ├── ranker.py                      # Multi-candidate sorting engine with deterministic score and experience tie-breaking
+│   ├── recency.py                     # Feature 6: Exponential half-life decay modeling for skill application recency
+│   ├── recommender.py                 # Job-role prediction and skill gap learning path recommendation logic
+│   ├── redact.py                      # Heuristic PII anonymizer redacting names, contacts, and pronouns for blind screening
+│   ├── routers_blind.py               # API sub-router for anonymization and candidate dossier generation endpoints
+│   ├── routers_extra.py               # API sub-router for evidence depth and visual PDF overlay endpoints
+│   ├── routers_star.py                # API sub-router for deterministic STAR bullet optimization endpoints
+│   ├── scoring.py                     # Centralized scoring engine computing match scores across 4 configurable presets
+│   ├── skills.py                      # Hybrid skill extraction, education parsing, and JD section deconstruction
+│   └── star.py                        # Rule-based offline optimizer rewriting weak resume bullet points
 ├── dashboard/
-│   ├── app.py                # Streamlit interactive UI application
-│   └── style.css             # Dashboard theme
-├── notebooks/                # Jupyter exploration and experimentation notebooks
-│   ├── 01_nlp_basics.ipynb
-│   ├── 02_embeddings_demo.ipynb
-│   └── 03_job_classifier.ipynb   # Trains and compares the job-role classifiers
+│   ├── app.py                         # Multi-page Streamlit dashboard (Overview, Upload, JD, Match, Bulk Rank)
+│   └── style.css                      # Custom SaaS theme styling, badge design, and layout rules for Streamlit
+├── docs/
+│   ├── figures/                       # Empirical evaluation plots (ablation studies, scatter charts, grid search)
+│   ├── screenshots/                   # Dashboard UI screenshots (Overview, Match Analysis, Bulk Ranking)
+│   ├── EVAL_NOTES.md                  # Comprehensive empirical evaluation notes and model benchmarks
+│   └── NOTES_features_ui.md           # UI design documentation and interaction specifications
+├── scripts/
+│   ├── artifacts/                     # Evaluation confusion matrices and performance metrics
+│   ├── compare_matching_modes.py      # Behavioral audit comparing scoring presets against test candidates
+│   ├── eval_v2_resumes.py             # Evaluation runner assessing parser accuracy across v2 test resumes
+│   ├── evaluate_matching.py           # Quantitative evaluation measuring rank correlations across scoring modes
+│   ├── evaluate_redaction.py          # Benchmark measuring PII redaction precision, recall, and over-redaction
+│   ├── evaluate_role_classifier.py    # Multi-class role classifier evaluation against external resume datasets
+│   ├── evaluate_skills.py             # Precision and recall benchmark for dictionary and NLP skill extraction
+│   ├── suggest_skills.py              # Discovery utility scanning resume corpuses for emerging skill taxonomy candidates
+│   ├── test_scoring_recency.py        # Verification runner for scoring engine components and recency decay factors
+│   ├── train_v2_model.py              # Retraining pipeline for the job-role classifier model
+│   ├── tune_weights.py                # Grid search script optimizing scoring component weights against human evaluations
+│   ├── verify_candidate_match.py      # Verification script auditing edge cases in experience and recency scoring
+│   ├── verify_match_pipeline.py       # End-to-end audit verifying candidate matching across real JD fixtures
+│   └── verify_scoring_modes.py        # Validation script checking mathematical bounds across all scoring presets
 ├── tests/
-│   ├── __init__.py           # Package marker for test suite
-│   ├── test_parser.py        # Unit tests and CLI runner for parser
-│   ├── test_skills.py
-│   ├── test_jd_analysis.py
-│   ├── test_matcher.py
-│   ├── test_upload_flow.py
-│   ├── test_recommender.py          # recommend_roles() tests
-│   └── test_recommend_endpoint.py   # POST /recommend-roles tests
-├── .gitignore                # Git ignore rules for venv, cache, and temp files
-├── requirements.txt          # Python project dependencies
-└── README.md                 # Project documentation and guide
+│   ├── eval/                          # Quantitative validation datasets and scoring ground truth
+│   ├── fixtures/                      # Sample resumes (PDF/DOCX) and benchmark job descriptions
+│   ├── generate_fixtures.py           # Fixture generator creating synthetic resumes for bulk ranking tests
+│   ├── test_api_endpoints.py          # Integration tests for core FastAPI endpoints via TestClient
+│   ├── test_blind_endpoint.py         # Tests for /resume/anonymize and /resume/dossier blind screening endpoints
+│   ├── test_bulk_and_ranking.py       # Unit and integration tests for bulk ingestion, scoring, and tie-breaking
+│   ├── test_cors.py                   # Verification tests for CORS middleware and ALLOWED_ORIGINS handling
+│   ├── test_edge_cases.py             # Resiliency tests for corrupted files, empty inputs, and unusual characters
+│   ├── test_evidence.py               # Tests for action verb extraction, metric detection, and evidence depth scoring
+│   ├── test_experience_extraction.py  # Unit tests for date parsing, interval merging, and duration calculations
+│   ├── test_fixtures_suite.py         # Comprehensive suite executing full bulk analysis across all 27 test fixtures
+│   ├── test_identity.py               # Tests verifying candidate name inference, email, phone, and link extraction
+│   ├── test_jd_analysis.py            # Unit tests for analyze_job_description section splitting and title inference
+│   ├── test_matcher.py                # Tests for dense semantic similarity, normalization bounds, and TF-IDF fallback
+│   ├── test_overlay.py                # Visual PDF coordinate overlay bounding-box generation tests
+│   ├── test_parser.py                 # Multi-format document parsing tests covering PDF and DOCX extractions
+│   ├── test_preprocess.py             # Unit tests for light_clean and nlp_process normalization pipelines
+│   ├── test_recency.py                # Tests verifying date-based skill recency scoring and exponential decay factors
+│   ├── test_recommend_endpoint.py     # Tests for the POST /recommend-roles classification endpoint
+│   ├── test_recommender.py            # Unit tests for job-role prediction model loading and probability scoring
+│   ├── test_redact.py                 # Unit tests for regex- and NER-based PII redaction and pronoun replacement
+│   ├── test_role_match_and_eligibility.py # End-to-end benchmark tests evaluating candidate eligibility against JDs
+│   ├── test_scoring.py                # Unit tests for all scoring modes, degree comparisons, and score breakdowns
+│   ├── test_skill_abbreviations.py    # Regression tests validating normalization of acronyms and compound skill names
+│   ├── test_skills.py                 # Unit tests for skill extraction, education parsing, and negative context guards
+│   ├── test_star.py                   # Unit tests for weak bullet detection, action verb matching, and STAR rewriting
+│   ├── test_star_endpoint.py          # Integration tests for the POST /resume/star-rewrite endpoint
+│   ├── test_suggest_skills.py         # Unit tests for taxonomy discovery and candidate frequency suggestions
+│   ├── test_upload_flow.py            # Verification tests for document upload, extraction, and matching workflows
+│   └── ui_verification.py             # Headless browser verification script testing Streamlit UI elements
+├── pytest.ini                         # Pytest configuration, warning filters, and test discovery settings
+└── requirements.txt                   # Complete project dependencies for backend, NLP, ML, dashboard, and testing
 ```
 
 ---
 
-## ⚙️ Prerequisites
+## Quick Start
 
-- **Python**: Version 3.10 to 3.12 installed on your system.
-- **Git**: Installed for version control and cloning.
-
-Check your Python version in terminal:
 ```bash
-python --version
-```
-
----
-
-## 🚀 Setup Steps (Windows)
-
-Follow these steps in your preferred terminal:
-
-### Option A: PowerShell
-
-```powershell
-# 1. Clone repository (or open existing project folder)
-# git clone <your-repo-url>
+git clone <repo>
 cd resume-analyzer
-
-# 2. Fix execution policy if virtual environment activation is blocked
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-
-# 3. Create virtual environment
 python -m venv .venv
-
-# 4. Activate virtual environment
-.venv\Scripts\Activate.ps1
-
-# 5. Upgrade pip
-python -m pip install --upgrade pip
-
-# 6. Install all dependencies
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-
-# 7. Download spaCy English language model
 python -m spacy download en_core_web_sm
-```
-
-### Option B: Command Prompt (`cmd.exe`)
-
-```cmd
-:: 1. Navigate to project folder
-cd resume-analyzer
-
-:: 2. Create virtual environment
-python -m venv .venv
-
-:: 3. Activate virtual environment
-.venv\Scripts\activate.bat
-
-:: 4. Upgrade pip
-python -m pip install --upgrade pip
-
-:: 5. Install all dependencies
-pip install -r requirements.txt
-
-:: 6. Download spaCy English language model
-python -m spacy download en_core_web_sm
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+streamlit run dashboard/app.py --server.port 8501
+python -m pytest -q
 ```
 
 ---
 
-## 🎯 Job Role Recommendation: One-Time Model Setup
+## Scoring Modes
 
-The **Recommended Roles** feature needs a trained model file (`app/models/job_classifier.joblib`). It is created once by running a notebook.
+The scoring engine (`app/scoring.py`) supports four distinct scoring presets configured via `SCORING_CONFIG`. Each mode balances taxonomy coverage, semantic similarity, verified experience, education qualification, and skill recency:
 
-1. **Place the dataset** at `app/data/resume_dataset.csv` (two columns: `Category` = job role, `Resume_str` = resume text).
-2. **Train the model.** With the virtual environment activated, open the notebook and run every cell (**Kernel → Restart & Run All**):
-   ```bash
-   pip install jupyter ipykernel
-   jupyter notebook notebooks/03_job_classifier.ipynb
-   ```
-   The notebook cleans the text, trains **TF-IDF + Logistic Regression** and **sentence embeddings + Logistic Regression**, compares them, and saves the better one to `app/models/job_classifier.joblib`.
-   > The first run downloads the `all-MiniLM-L6-v2` model (~90 MB), so an internet connection is needed. Allow 1–3 minutes on CPU.
-3. **Restart the backend** after training. The API keeps the model in memory, so a running server won't see a newly trained model until it is restarted.
+| Mode | Skill Overlap | Semantic Similarity | Experience Fit | Education Fit | Skill Recency | Purpose & Intended Use Case |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **`skills_only`** | 100% | 0% | 0% | 0% | 0% | Strict keyword & canonical skill overlap without semantic inference. |
+| **`hybrid`** | 70% | 30% | 0% | 0% | 0% | Balances explicit skill matches with contextual semantic similarity. |
+| **`proposal`** | 40% | 40% | 10% | 10% | 0% | Comprehensive holistic evaluation incorporating years of experience and degree rank. |
+| **`composite`** | 40% | 30% | 15% | 0% | 15% | Advanced multi-factor evaluation with evidence depth weighting and exponential recency decay. |
 
-Once the model exists, the **Recommended Roles** card appears in the dashboard on the **Upload Resume** page (below *Extracted Skills*) and on the **Match & Analysis** page (below the Strengths / Gaps / Learning Priorities cards). Percentages show relative fit among the roles in the dataset, not an absolute score.
+### Evidence Depth Multipliers (`composite` mode)
+When operating in `composite` mode, matched skills are weighted by the grammatical depth of evidence found in the resume:
+- **`high_depth` (1.0x)**: The skill is governed by an action verb and includes measurable metrics (e.g., percentages, dollar amounts, scale).
+- **`demonstrated` (0.85x)**: The skill is governed by a strong action verb without explicit metrics.
+- **`listed` (0.50x)**: The skill is merely listed in a skills section or summary without context.
 
----
-
-## 🏃 How to Run
-
-Make sure your virtual environment (`.venv`) is activated before running any of the following commands:
-
-### 1. Run the FastAPI Backend
-```bash
-uvicorn app.main:app --reload
-```
-- API Base URL: `http://127.0.0.1:8000`
-- Interactive Swagger UI Docs: `http://127.0.0.1:8000/docs`
-- Alternative Redoc Docs: `http://127.0.0.1:8000/redoc`
-
-### 2. Run the Streamlit Dashboard
-```bash
-streamlit run dashboard/app.py
-```
-- Dashboard URL: `http://localhost:8501`
-
-### 3. Run Automated Tests
-```bash
-# Run all tests using pytest
-pytest
-
-# Or run parser unit tests with Python's built-in test runner
-python tests/test_parser.py
-
-# Or parse a sample resume directly using the parser CLI runner
-python tests/test_parser.py "path/to/sample_resume.pdf"
-
-# Role-recommendation tests only
-pytest tests/test_recommender.py tests/test_recommend_endpoint.py
-```
-
-> Model-dependent role tests are **skipped automatically** until `app/models/job_classifier.joblib` exists. Run notebook `03_job_classifier.ipynb` first to enable them.
+Semantic scores are normalized against configured bounds (`DEFAULT_SEMANTIC_LOW = 0.20`, `DEFAULT_SEMANTIC_HIGH = 0.65`) before component weighting.
 
 ---
 
-## 📡 API Usage Examples
+## API Endpoints
 
-Once the FastAPI server is running (`http://127.0.0.1:8000`), you can test endpoints via Swagger Docs or `curl`:
+The FastAPI backend exposes endpoints organized across dedicated functional tags:
 
-### 1. Upload & Parse Resume
-**`POST /resume/upload`**
-```bash
-curl -X POST "http://127.0.0.1:8000/resume/upload" \
-  -F "file=@sample_resume.pdf"
-```
-
-### 2. Analyze Job Description
-**`POST /job/analyze`**
-```bash
-curl -X POST "http://127.0.0.1:8000/job/analyze" \
-  -H "Content-Type: application/json" \
-  -d '{"job_title": "Python Developer", "description": "Looking for a Python backend engineer with FastAPI, Docker, and PostgreSQL experience."}'
-```
-
-### 3. Match Resume Against Job Description
-**`POST /match`**
-```bash
-curl -X POST "http://127.0.0.1:8000/match" \
-  -H "Content-Type: application/json" \
-  -d '{"resume_text": "Python developer with FastAPI and Docker experience.", "job_description": "Requirements\nPython, FastAPI, Docker, PostgreSQL"}'
-```
-
-### 4. Detect Skill Gaps
-**`GET /skill-gap`**
-```bash
-curl -G "http://127.0.0.1:8000/skill-gap" \
-  --data-urlencode "resume_text=Python developer with FastAPI experience" \
-  --data-urlencode "job_description=Requirements: Python, FastAPI, Docker"
-```
-
-### 5. Get Job / Course Recommendations
-**`GET /recommendations`**
-```bash
-curl -G "http://127.0.0.1:8000/recommendations" \
-  --data-urlencode "resume_text=Python developer with FastAPI experience"
-```
-
-### 6. Recommend Job Roles
-**`POST /recommend-roles`**
-```bash
-curl -X POST "http://127.0.0.1:8000/recommend-roles" \
-  -H "Content-Type: application/json" \
-  -d '{"resume_text": "Data analyst with 4 years of experience building Power BI dashboards and SQL reports.", "top_k": 4}'
-```
-
-Example response (values are illustrative):
-```json
-{
-  "recommendations": [
-    {"role": "Data Analyst", "probability_percent": 76.4},
-    {"role": "Business Analyst", "probability_percent": 9.1},
-    {"role": "Data Science", "probability_percent": 6.2},
-    {"role": "Database Administrator", "probability_percent": 3.0}
-  ],
-  "model": "TF-IDF + LR"
-}
-```
-
-| Field | Description |
-| :--- | :--- |
-| `resume_text` | Full resume text (e.g. `extracted_text` returned by `/resume/upload`) |
-| `top_k` | Optional, default `4`, allowed range 1–50 |
-
-| Status | Meaning |
-| :---: | :--- |
-| `200` | Success |
-| `400` | `resume_text` is empty |
-| `422` | Invalid request body (e.g. `top_k` out of range) |
-| `503` | Model not trained yet; run `notebooks/03_job_classifier.ipynb` |
-
-> **Windows tip:** quoting JSON in `cmd.exe` is awkward. Use the Swagger UI at `http://127.0.0.1:8000/docs` instead.
----
-
-## Scoring modes
-
-Set with the `SCORING_MODE` environment variable (default `skills_only`). Weights come from `app/scoring.py`.
-
-| Mode | Formula | Needs semantic model |
-| :--- | :--- | :---: |
-| `skills_only` | 1.0 x skill coverage (0.80 required + 0.20 preferred; required only or preferred only if the other list is empty) | No |
-| `hybrid` | 0.70 skill + 0.30 semantic | Yes |
-| `proposal` | 0.40 skill + 0.40 semantic + 0.10 experience fit + 0.10 education fit | Yes |
-| `composite` | 0.40 skill (evidence-adjusted) + 0.30 semantic + 0.15 experience fit + 0.15 skill recency | Yes |
-
-- Semantic similarity is the cosine similarity from `all-MiniLM-L6-v2`, normalized between `SEMANTIC_SCORE_LOW` (0.15) and `SEMANTIC_SCORE_HIGH` (0.65).
-- If the semantic model cannot load, any non-`skills_only` mode falls back to `skills_only` and reports `scoring_mode: "skills_only"`.
-- In `composite` mode, `app/scoring.py` calls `app.evidence.skill_multipliers` when the module is importable: `high_depth` 1.0, `demonstrated` 0.85, `listed` 0.5. Recency uses a 3-year half-life, a 0.05 floor, and 0.5 for undated skills.
-
-## Environment variables
-
-| Variable | Used by | Purpose | Example |
-| :--- | :--- | :--- | :--- |
-| `SCORING_MODE` | API | One of `skills_only`, `hybrid`, `proposal`, `composite`. | `SCORING_MODE=skills_only` |
-| `API_BASE` | Dashboard | URL of the API (also read from Streamlit secrets; `BACKEND_URL` is an alias). Defaults to `http://127.0.0.1:8000`. | `API_BASE=https://resume-api.onrender.com` |
-| `ALLOWED_ORIGINS` | API | Comma-separated CORS origins. Unset or blank means `*` (local development). | `ALLOWED_ORIGINS=https://example.com,https://dashboard.example.com` |
-
-## API endpoints
-
-### POST /resume/evidence
-Classifies each skill as `high_depth`, `demonstrated` or `listed`. `skills` is optional.
-```bash
-curl -X POST http://127.0.0.1:8000/resume/evidence -H "Content-Type: application/json" \
-  -d '{"resume_text": "Skills: Python\nDeployed Docker containers, reducing build time by 30%.", "skills": ["Python", "Docker"]}'
-```
-Response: `{"docker": {"level": "high_depth", "multiplier": 1.0, "evidence": "...", "signals": ["action_verb:deploy", "metric:30%"]}, "python": {...}, "counts": {"high_depth": 1, "demonstrated": 0, "listed": 1}}`. Empty text returns 400.
-
-### POST /resume/overlay
-Multipart upload; returns page images (base64 PNG) plus normalized boxes in `required`, `preferred`, `semantic` and `unverified` categories.
-```bash
-curl -X POST http://127.0.0.1:8000/resume/overlay -F "file=@resume.pdf" \
-  -F "jd_text=Requirements: Python, Docker" -F "include_semantic=false"
-```
-400 for non-PDF/invalid PDF content, empty `jd_text`, or files over 5 MB. Scanned PDFs return `has_text_layer: false` and no boxes (no OCR).
-
-### POST /resume/star-rewrite
-Existing endpoint (`app/routers_star.py`).
-```bash
-curl -X POST http://127.0.0.1:8000/resume/star-rewrite -H "Content-Type: application/json" \
-  -d '{"resume_text": "EXPERIENCE\n- Responsible for deployment of the API.", "jd_text": "Requires Docker", "max_suggestions": 5}'
-```
-Returns `suggestions` (original, reasons, target_skill, skill_status, star, rewritten_bullet, placeholders, requires_real_experience, honesty_note), `counts` and `disclaimer`.
-
-### POST /resume/anonymize
-**Not present in this repository's backend at the time of writing.** The dashboard expects `{"resume_text": "..."}` and reads `redacted_text`, `redaction_counts` and `residual_flags` from the response; a 404 shows "Feature not available on this server".
-```bash
-curl -X POST http://127.0.0.1:8000/resume/anonymize -H "Content-Type: application/json" -d '{"resume_text": "..."}'
-```
-
-### POST /resume/dossier
-**Not present in this repository's backend at the time of writing.** The dashboard sends `resume_text` plus the job description (`jd_text`/`job_description`) and offers the returned JSON for download as JSON and TXT (obvious PII keys are removed client-side). A 404 shows "Feature not available on this server".
-```bash
-curl -X POST http://127.0.0.1:8000/resume/dossier -H "Content-Type: application/json" -d '{"resume_text": "...", "jd_text": "..."}'
-```
-
-## Deploying on Render and Streamlit Cloud
-
-**API (Render web service)**
-- Build command: `pip install -r requirements-api.txt && python -m spacy download en_core_web_sm`
-- Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-- Environment: `SCORING_MODE=skills_only`, `ALLOWED_ORIGINS=https://<your-dashboard>.streamlit.app`
-- For `hybrid`/`proposal`/`composite`, also run `pip install -r requirements-semantic.txt` (large; needs more RAM than most free tiers).
-
-**Dashboard (Streamlit Cloud)**
-- Main file: `dashboard/app.py`. It only needs `streamlit` and `requests`; it never imports torch or sentence-transformers.
-- Add `API_BASE = "https://<your-api>.onrender.com"` in the app's Secrets (or as an environment variable).
-
-**How they communicate:** the dashboard calls the API over HTTPS using `API_BASE`; the API's CORS policy must list the dashboard origin in `ALLOWED_ORIGINS`.
-
-**Cold-start retries:** free-tier APIs sleep. The dashboard health check makes up to 6 attempts (8 s timeout each, waiting 2, 4, 6, 8, 10 s between them) and shows "Waking up the analysis server, this can take up to a minute". "API unavailable" appears only after the final failed attempt. First requests to `/resume/upload`, `/match` and `/resume/overlay` use a 60 s timeout.
+| Method | Path | What it does |
+| :--- | :--- | :--- |
+| `GET` | `/` | Health check endpoint returning API operational status and version |
+| `GET` | `/health` | Dedicated liveness and readiness probe for orchestration environments |
+| `POST` | `/resume/upload` | Ingests PDF/DOCX files, parses full text, candidate contact info, and extracted skills |
+| `POST` | `/job/analyze` | Deconstructs job description text into required skills, role titles, and experience bounds |
+| `POST` | `/match` | Computes candidate-job match score across chosen preset with full component breakdowns |
+| `GET` | `/skill-gap` | Compares resume skills against JD requirements to return missing and matched skills |
+| `GET` | `/recommendations` | Suggests targeted skills to learn based on missing requirements from gap analysis |
+| `POST` | `/recommend-roles` | Classifies resume text to predict top fitting job roles with probability scores |
+| `POST` | `/resume/bulk-analyze` | Analyzes multiple uploaded resumes concurrently against a single target job description |
+| `POST` | `/rank` | Sorts analyzed candidate profiles by match score with deterministic tie-breaking |
+| `POST` | `/export/csv` | Generates and exports a downloadable CSV summary of ranked candidate shortlists |
+| `POST` | `/resume/star-rewrite` | Re-engineers resume bullet points into structured STAR format with domain metrics |
+| `POST` | `/resume/evidence` | Extracts sentence-level evidence snippets and classifies depth for matched skills |
+| `POST` | `/resume/overlay` | Produces coordinate-level bounding box annotations for interactive visual PDF overlay |
+| `POST` | `/resume/anonymize` | Redacts personally identifiable information (names, emails, phones, pronouns) |
+| `POST` | `/resume/dossier` | Generates a sanitized blind-screening candidate dossier stripped of demographic identifiers |
 
 ---
 
-## 📊 How the Match Score Works
+## Environment Variables
 
-The total candidate-to-job match score is calculated using a balanced multi-criteria formula:
-
-$$\text{Final Score} = 0.40 \cdot S_{\text{skills}} + 0.40 \cdot S_{\text{semantic}} + 0.10 \cdot S_{\text{experience}} + 0.10 \cdot S_{\text{education}}$$
-
-| Component | Weight | Description |
-| :--- | :---: | :--- |
-| **Skill Overlap ($S_{\text{skills}}$)** | **40%** | Exact and taxonomy-mapped overlap between candidate skills and required job skills (Jaccard / weighted coverage). |
-| **Semantic Similarity ($S_{\text{semantic}}$)** | **40%** | Dense cosine similarity using `sentence-transformers` embeddings between the candidate profile summary and job description text. |
-| **Experience Fit ($S_{\text{experience}}$)** | **10%** | Comparison of total years of professional experience against the minimum years required by the posting. |
-| **Education Fit ($S_{\text{education}}$)** | **10%** | Degree level matching (e.g. Bachelor's, Master's, PhD) compared to required credentials. |
+| Variable | Default | Purpose |
+| :--- | :--- | :--- |
+| `SCORING_MODE` | `"composite"` *(in `app/main.py`)* / `"skills_only"` *(in `app/scoring.py`)* | Active scoring preset used for match evaluations (`skills_only`, `hybrid`, `proposal`, `composite`) |
+| `SEMANTIC_SCORE_LOW` | `0.20` | Lower bound for min-max scaling of raw cosine similarity values |
+| `SEMANTIC_SCORE_HIGH` | `0.65` | Upper bound for min-max scaling of raw cosine similarity values |
+| `USE_LIGHTWEIGHT_MATCHER` | `"0"` | When set to `"1"`, disables heavy Sentence Transformers and falls back to TF-IDF vectorization |
+| `ALLOWED_ORIGINS` | `None` *(wildcard/default)* | Comma-separated list of allowed origins for FastAPI CORS middleware |
+| `API_BASE` / `BACKEND_URL` | `"http://localhost:8000"` / `"http://127.0.0.1:8000"` | Base URL of the FastAPI backend consumed by the Streamlit dashboard |
 
 ---
 
-## 📈 Evaluation & Benchmarks
+## Live Demo
 
-*Placeholder results to be populated during experimental evaluation:*
-
-| Metric | Target Baseline | Achieved Score | Notes |
-| :--- | :---: | :---: | :--- |
-| **Skill Extraction F1 Score** | $\ge 0.85$ | *TBD* | Evaluated on annotated test resumes |
-| **Skill Classifier Accuracy** | $\ge 88\%$ | *TBD* | Multi-class category classification |
-| **Matching MAE / Correlation** | Spearman $r \ge 0.75$ | *TBD* | Correlated with human recruiter ratings |
+- **Interactive Streamlit Dashboard**: [http://localhost:8501](http://localhost:8501)
+- **FastAPI Interactive Swagger Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **FastAPI ReDoc Specification**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
 ---
 
-## 📋 Development Progress Checklist
+## Test Coverage
 
-- [x] **Phase 0: Environment Setup & Project Architecture**
-  - [x] Directory structure and module setup
-  - [x] Virtual environment and dependency configuration (`requirements.txt`)
-  - [x] spaCy model and environment validation
-- [x] **Phase 1: Resume Ingestion & Parsing Engine**
-  - [x] PDF text extraction using PyMuPDF
-  - [x] DOCX text & table extraction using python-docx
-  - [x] Text normalization and error handling
-  - [x] Parser unit tests and CLI runner
-- [ ] **Phase 2: Text Preprocessing & Skill Extraction**
-  - [ ] Text cleaning, lowercasing, stopword removal, tokenization
-  - [ ] Skill taxonomy curation (`app/data/`)
-  - [ ] spaCy phrase matcher & entity extraction for skills
-- [ ] **Phase 3: Job Description Parsing & Scoring Engine**
-  - [ ] JD requirement parser
-  - [ ] Sentence-transformer semantic embedding integration
-  - [ ] Multi-factor match scoring algorithm (`app/matcher.py`)
-- [ ] **Phase 4: Skill Gap Analysis & Recommendations**
-  - [ ] Missing skill identification and prioritization
-  - [ ] Recommended courses and related job roles (`app/recommender.py`)
-- [ ] **Phase 5: FastAPI Backend & Endpoints**
-  - [ ] Upload, analyze, match, and recommendation API routes
-  - [ ] Pydantic validation schemas
-- [ ] **Phase 6: Streamlit UI Dashboard**
-  - [ ] File upload widget and interactive charts
-  - [ ] Match score breakdown visualizer and gap report
-- [ ] **Phase 7: Testing, Evaluation & Documentation**
-  - [ ] Comprehensive test suite
-  - [ ] Precision, Recall, and F1 evaluation
-- [x] **Phase 8: Job Role Classifier**
-  - [x] EDA, text cleaning, and stratified split (`notebooks/03_job_classifier.ipynb`)
-  - [x] TF-IDF + Logistic Regression vs. sentence embeddings + Logistic Regression
-  - [x] Best model saved with joblib (`app/models/job_classifier.joblib`)
-  - [x] `recommend_roles()` in `app/recommender.py`
-  - [x] `POST /recommend-roles` endpoint
-  - [x] "Recommended Roles" card in the Streamlit dashboard
-
----
-
-## 🔧 Troubleshooting
-
-### 1. `Can't find model 'en_core_web_sm'`
-- **Cause**: The spaCy model has not been downloaded in your active virtual environment.
-- **Fix**: Run:
+The project maintains test coverage across 26 test files:
+- **Total Test Files**: 26 suites in `tests/`
+- **Total Tests Collected & Passing**: 530 tests
+- **Pytest Collection Command**:
   ```bash
-  python -m spacy download en_core_web_sm
+  python -m pytest --collect-only -q
+  # Output: 530 tests collected
   ```
-
-### 2. PyMuPDF (`fitz`) Installation Issues
-- **Cause**: Outdated `pip` or wheel build failure on Windows.
-- **Fix**:
-  ```bash
-  python -m pip install --upgrade pip setuptools wheel
-  pip install --upgrade pymupdf
-  ```
-
-### 3. PowerShell Script Execution Blocked (`Activate.ps1 cannot be loaded`)
-- **Cause**: Windows PowerShell security policy restricts unsigned script execution by default.
-- **Fix**: Run this in PowerShell before activating:
-  ```powershell
-  Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-  ```
-
-### 4. `Port 8000 / 8501 already in use`
-- **Cause**: Another service or previous server instance is still occupying the port.
-- **Fix**:
-  - Run Uvicorn on an alternate port:
-    ```bash
-    uvicorn app.main:app --port 8080 --reload
-    ```
-  - Run Streamlit on an alternate port:
-    ```bash
-    streamlit run dashboard/app.py --server.port 8502
-    ```
-
-### 5. `Trained model not found ... Run notebooks/03_job_classifier.ipynb`
-- **Cause**: `app/models/job_classifier.joblib` doesn't exist yet. The API returns `503` and the dashboard shows a yellow warning instead of the Recommended Roles card.
-- **Fix**: Run all cells of `notebooks/03_job_classifier.ipynb` (see *Job Role Recommendation: One-Time Model Setup*), then restart `uvicorn`.
-
-### 6. Recommended Roles card is missing in the dashboard
-- **Cause**: The backend isn't running, the model hasn't been trained, or the browser is showing an old version.
-- **Fix**: Start `uvicorn app.main:app --reload`, make sure the model file exists, restart Streamlit, and hard-refresh the page (`Ctrl+Shift+R`).
-
-### 7. Roles didn't change after retraining the model
-- **Cause**: The API caches the model in memory.
-- **Fix**: Restart `uvicorn`.
-
-### 8. `FileNotFoundError: ...resume_dataset.csv` in the notebook
-- **Cause**: The dataset isn't at the expected path.
-- **Fix**: Copy it to `app/data/resume_dataset.csv` (create the `app/data` folder if needed).
-
-### 9. `InconsistentVersionWarning` or the model fails to load after upgrading scikit-learn
-- **Cause**: A `.joblib` file only loads reliably with the scikit-learn version that created it.
-- **Fix**: Re-run `notebooks/03_job_classifier.ipynb` in your current environment to regenerate the model.
-
-### 10. Notebook says `No module named 'app'`
-- **Cause**: Jupyter was started from the wrong folder.
-- **Fix**: Launch Jupyter from the project root (`jupyter notebook`) and open the notebook from `notebooks/`.
 
 ---
 
-## 🔮 Future Improvements
+## Known Limitations
 
-- OCR support for scanned image-based PDF resumes (Tesseract / EasyOCR).
-- Resume ranking for bulk recruiter uploads (ranking 50+ candidates at once).
-- Exportable PDF analysis reports with skill roadmap visualizations.
-- Integration with external course APIs (Coursera, edX) for real-time course recommendations.
+- **No OCR for Scanned Documents**: Document text extraction via PyMuPDF and python-docx relies entirely on embedded text layers; flattened image-only PDFs or scanned page images yield empty text without external OCR preprocessing.
+- **English-Centric NLP Models**: The skill taxonomy, linguistic dependency patterns, date parsing rules, and degree regexes are built specifically for English resumes; non-English resumes or international date conventions are not natively supported.
+- **Heuristic Redaction Limitations**: Blind screening uses statistical NER and pattern matching to redact PII, which cannot guarantee 100% anonymity if candidate names appear in irregular non-standard grammatical contexts or embedded graphics.
+- **Calendar-Based Experience Approximation**: Experience extraction aggregates chronological date intervals without accounting for part-time versus full-time allocations, career breaks, or concurrent non-additive commitments.
+- **Stateless In-Memory Architecture**: The backend operates statelessly without an external relational database (e.g., PostgreSQL); bulk upload batches and candidate dossiers reside strictly in transient memory and session state.
 
 ---
 
-## 📄 License
+## License
 
-This project is licensed under the [MIT License](LICENSE) (placeholder).
+This project is licensed under the [MIT License](LICENSE).
